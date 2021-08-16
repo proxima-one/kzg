@@ -1,11 +1,11 @@
 [package]
 name = "kzg"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2018"
 license = "MIT"
 description = "a simple implementation of the KZG polynomial commitment scheme"
 authors = [ "sladuca777@gmail.com" ]
-repository = "https://github.com/Sladuca/kzg-polycommit"
+repository = "https://github.com/Sladuca/kzg"
 readme = "README.md"
 
 
