@@ -261,5 +261,27 @@ mod tests {
 				Scalar::zero(),
 			])
 		);
+
+		// x^3 + 6x^2 + 13x + 10 / x + 2 = x^2 + 4x + 5 r 0
+		let x: Polynomial<Bls12, 4> =
+			Polynomial::new([10.into(), 13.into(), 6.into(), Scalar::one()]);
+		let y: Polynomial<Bls12, 4> = Polynomial::new([
+			Scalar::from(2),
+			Scalar::one(),
+			Scalar::zero(),
+			Scalar::zero(),
+		]);
+
+		let (q, r) = x.long_division(&y);
+		assert!(r.is_none());
+		assert_eq!(
+			q,
+			Polynomial::new([
+				5.into(),
+				4.into(),
+				Scalar::one(),
+				Scalar::zero(),
+			])
+		);
     }
 }
