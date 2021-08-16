@@ -1,3 +1,7 @@
+#[cfg(any(test, std))]
+#[macro_use]
+extern crate std;
+
 use pairing::{
     Engine,
     group::{
@@ -141,6 +145,39 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGVerifier<E, MAX_DEGREE> {
         );
 
         lhs == rhs
+    }
+}
+
+#[cfg(any(csprng_setup, test))]
+use rand::random;
+
+#[cfg(any(csprng_setup, test))]
+pub fn csprng_setup<E: Engine, const MAX_DEGREE: usize>() -> KZGParams<E, MAX_DEGREE> {
+    let s: E::Fr = random::<u64>().into();
+    let g = E::G1Affine::generator();
+    let h = E::G2Affine::generator();
+
+    let mut gs = [g; MAX_DEGREE];
+    let mut hs = [h; MAX_DEGREE];
+
+    let mut curr = g;
+
+    for g in gs.iter_mut() {
+        *g = (curr * s).to_affine();
+        curr = *g;
+    }
+
+    let mut curr = h;
+    for h in hs.iter_mut() {
+        *h = (curr * s).to_affine();
+        curr = *h;
+    }
+
+    KZGParams {
+        g,
+        h,
+        gs,
+        hs
     }
 }
 
