@@ -1,9 +1,9 @@
-## kzg-polycommit
+## kzg
 
 **This project is incomplete.**
 **This code has not beed audited - use it at your own risk.**
 
-`kzg-polycommit` is a simple implementation of the [Kate-Zaverucha-Goldberg polynomial commitment scheme](https://www.iacr.org/archive/asiacrypt2010/6477178/6477178.pdf) over the [`zkcrypto`](https://github.com/zkcrypto) ecosystem's primitives, mainly their [`pairing`](https://github.com/zkcrypto/pairing) abstraction.
+`kzg` is a simple implementation of the [Kate-Zaverucha-Goldberg polynomial commitment scheme](https://www.iacr.org/archive/asiacrypt2010/6477178/6477178.pdf) over the [`zkcrypto`](https://github.com/zkcrypto) ecosystem's primitives, mainly their [`pairing`](https://github.com/zkcrypto/pairing) abstraction.
 
 ### Author's Note
 
