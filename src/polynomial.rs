@@ -70,11 +70,11 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
     pub fn compute_degree(coeffs: &[E::Fr], upper_bound: usize) -> usize {
         let mut i = upper_bound;
         loop {
-            if coeffs[i] != E::Fr::zero() {
-                break i + 1;
-            } else if i == 0 {
-                break 0;
-            };
+			if i == 0 {
+				break 0
+			} else if coeffs[i-1] != E::Fr::zero() {
+                break i;
+			}
 
             i -= 1;
         }
@@ -136,7 +136,7 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
                 let i = remainder.degree() - divisor.degree();
                 quotient.coeffs[i] = factor;
 
-                for (j, &coeff) in divisor.coeffs.iter().enumerate() {
+                for (j, &coeff) in divisor.coeffs.iter().enumerate().take(divisor.degree()) {
                     remainder.coeffs[i + j] -= coeff * factor;
                 }
 
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn test_polynomial_division() {
         let x: Polynomial<Bls12, 5> =
-            Polynomial::new([3.into(), 0.into(), -Scalar::from(5), 0.into(), 3.into()]);
+            Polynomial::new([3.into(), Scalar::zero(), -Scalar::from(5), Scalar::zero(), 3.into()]);
         let y: Polynomial<Bls12, 5> = Polynomial::new([
             2.into(),
             Scalar::one(),
@@ -216,5 +216,16 @@ mod tests {
                 Scalar::zero()
             ])
         );
+		println!("hi");
+		assert_eq!(
+			q,
+			Polynomial::new([
+				-Scalar::from(14),
+				7.into(),
+				-Scalar::from(6),
+				3.into(),
+				Scalar::zero(),
+			])
+		);
     }
 }
