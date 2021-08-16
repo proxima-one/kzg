@@ -2,17 +2,12 @@
 #[macro_use]
 extern crate std;
 
+use core::fmt::Debug;
 use pairing::{
+    group::{ff::Field, prime::PrimeCurveAffine, Curve, Group},
     Engine,
-    group::{
-        Curve,
-        Group,
-        ff::Field,
-        prime::PrimeCurveAffine
-    }
 };
 use thiserror::Error;
-use core::fmt::Debug;
 
 pub mod polynomial;
 
@@ -27,7 +22,7 @@ pub struct KZGParams<E: Engine, const MAX_DEGREE: usize> {
     /// g^alpha^1, g^alpha^2, ...
     gs: [E::G1Affine; MAX_DEGREE],
     /// g^alpha^1, g^alpha^2, ...
-    hs: [E::G2Affine; MAX_DEGREE]
+    hs: [E::G2Affine; MAX_DEGREE],
 }
 
 // the commitment - "C" in the paper. It's a single group element
@@ -41,16 +36,15 @@ pub enum KZGError {
     #[error("no polynomial!")]
     NoPolynomial,
     #[error("point not on polynomial!")]
-    PointNotOnPolynomial
+    PointNotOnPolynomial,
 }
-
 
 pub struct KZGProver<E: Engine, const MAX_DEGREE: usize> {
     parameters: KZGParams<E, MAX_DEGREE>,
     polynomial: Option<Polynomial<E, MAX_DEGREE>>,
     commitment: Option<KZGCommitment<E>>,
     batch_witness: Option<E::G1>,
-    witnesses: [Option<E::G1Affine>; MAX_DEGREE]
+    witnesses: [Option<E::G1Affine>; MAX_DEGREE],
 }
 
 pub struct KZGVerifier<E: Engine, const MAX_DEGREE: usize> {
@@ -65,17 +59,17 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
             polynomial: None,
             commitment: None,
             batch_witness: None,
-            witnesses: [None; MAX_DEGREE]
+            witnesses: [None; MAX_DEGREE],
         }
     }
 
-    fn commit(&mut self, polynomial: Polynomial<E, MAX_DEGREE>) -> KZGCommitment<E>{
+    fn commit(&mut self, polynomial: Polynomial<E, MAX_DEGREE>) -> KZGCommitment<E> {
         let mut commitment = E::G1::identity();
         for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
             if i == 0 {
                 commitment += self.parameters.g * coeff;
             } else {
-                commitment += self.parameters.gs[i-1] * coeff;
+                commitment += self.parameters.gs[i - 1] * coeff;
             }
         }
 
@@ -91,7 +85,6 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
-
                 let mut dividend = polynomial.clone();
                 dividend.coeffs[0] -= y;
 
@@ -108,7 +101,7 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
                             if i == 0 {
                                 witness += self.parameters.g * coeff;
                             } else {
-                                witness += self.parameters.gs[i-1] * coeff;
+                                witness += self.parameters.gs[i - 1] * coeff;
                             }
                         }
 
@@ -121,27 +114,36 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
 }
 
 impl<E: Engine, const MAX_DEGREE: usize> KZGVerifier<E, MAX_DEGREE> {
-    fn verify_poly(&self, commitment: KZGCommitment<E>, polynomial: &Polynomial<E, MAX_DEGREE>) -> bool {
+    fn verify_poly(
+        &self,
+        commitment: KZGCommitment<E>,
+        polynomial: &Polynomial<E, MAX_DEGREE>,
+    ) -> bool {
         let mut check = E::G1::identity();
         for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
             if i == 0 {
                 check += self.parameters.g * coeff;
             } else {
-                check += self.parameters.gs[i-1] * coeff;
+                check += self.parameters.gs[i - 1] * coeff;
             }
         }
 
         check.to_affine() == commitment.0
     }
 
-    fn verify_eval(&self, (x, y): (E::Fr, E::Fr), commitment: KZGCommitment<E>, witness: KZGWitness<E>) -> bool {
+    fn verify_eval(
+        &self,
+        (x, y): (E::Fr, E::Fr),
+        commitment: KZGCommitment<E>,
+        witness: KZGWitness<E>,
+    ) -> bool {
         let lhs = E::pairing(
             &witness.0,
-            &(self.parameters.hs[0].to_curve() + self.parameters.h * -x).to_affine()
+            &(self.parameters.hs[0].to_curve() + self.parameters.h * -x).to_affine(),
         );
         let rhs = E::pairing(
             &(commitment.0.to_curve() - self.parameters.g * -y).to_affine(),
-            &self.parameters.h
+            &self.parameters.h,
         );
 
         lhs == rhs
@@ -173,12 +175,7 @@ pub fn csprng_setup<E: Engine, const MAX_DEGREE: usize>() -> KZGParams<E, MAX_DE
         curr = *h;
     }
 
-    KZGParams {
-        g,
-        h,
-        gs,
-        hs
-    }
+    KZGParams { g, h, gs, hs }
 }
 
 #[cfg(test)]
