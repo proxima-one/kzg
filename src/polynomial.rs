@@ -103,12 +103,12 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
     }
 
     pub fn eval(&self, x: E::Fr) -> E::Fr {
-        let mut res = self.coeffs[0];
-        let mut term = x;
+        let mut res = E::Fr::zero();
+        let mut term = E::Fr::one();
 
-        for &coeff in self.coeffs.iter().skip(1) {
-            res += coeff * term;
-            term *= term;
+        for i in 0..self.degree() {
+            res += self.coeffs[i] * term;
+            term *= x;
         }
 
         res
@@ -283,5 +283,25 @@ mod tests {
 				Scalar::zero(),
 			])
 		);
+    }
+
+    #[test]
+    fn test_eval_basic() {
+        // y(x) = x^5 + 4x^3 + 7x^2 + 34
+        let polynomial: Polynomial<Bls12, 6> = Polynomial::new([
+            34.into(),
+            Scalar::zero(),
+            7.into(),
+            4.into(),
+            Scalar::zero(),
+            Scalar::one(),
+        ]);
+        
+        // y(0) = 34
+        assert_eq!(polynomial.eval(Scalar::zero()), 34.into());
+        // y(1) = 46
+        assert_eq!(polynomial.eval(Scalar::one()), 46.into());
+        // y(5) = 3834
+        assert_eq!(polynomial.eval(5.into()), 3834.into());
     }
 }

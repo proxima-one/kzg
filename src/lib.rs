@@ -28,7 +28,7 @@ pub struct KZGParams<E: Engine, const MAX_DEGREE: usize> {
 
 // the commitment - "C" in the paper. It's a single group element
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct KZGCommitment<E: Engine>(E::G1Affine);
+pub struct KZGCommitment<E: Engine>(E::G2Affine);
 
 // A witness for a single element - "w_i" in the paper. It's a group element.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -56,7 +56,7 @@ pub struct KZGVerifier<E: Engine, const MAX_DEGREE: usize> {
 
 impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
     /// initializes `polynomial` to zero polynomial
-    fn new(parameters: KZGParams<E, MAX_DEGREE>) -> Self {
+    pub fn new(parameters: KZGParams<E, MAX_DEGREE>) -> Self {
         Self {
             parameters,
             polynomial: None,
@@ -66,13 +66,13 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
         }
     }
 
-    fn commit(&mut self, polynomial: Polynomial<E, MAX_DEGREE>) -> KZGCommitment<E> {
-        let mut commitment = E::G1::identity();
+    pub fn commit(&mut self, polynomial: Polynomial<E, MAX_DEGREE>) -> KZGCommitment<E> {
+        let mut commitment = E::G2::identity();
         for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
             if i == 0 {
-                commitment += self.parameters.g * coeff;
+                commitment += self.parameters.h * coeff;
             } else {
-                commitment += self.parameters.gs[i - 1] * coeff;
+                commitment += self.parameters.hs[i - 1] * coeff;
             }
         }
 
@@ -80,18 +80,18 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
         KZGCommitment(commitment.to_affine())
     }
 
-    fn open(&self) -> Result<Polynomial<E, MAX_DEGREE>, KZGError> {
+    pub fn open(&self) -> Result<Polynomial<E, MAX_DEGREE>, KZGError> {
         self.polynomial.clone().ok_or(KZGError::NoPolynomial)
     }
 
-    fn create_witness(&mut self, (x, y): (E::Fr, E::Fr)) -> Result<KZGWitness<E>, KZGError> {
+    pub fn create_witness(&mut self, (x, y): (E::Fr, E::Fr)) -> Result<KZGWitness<E>, KZGError> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
                 let mut dividend = polynomial.clone();
                 dividend.coeffs[0] -= y;
 
-                let mut divisor = Polynomial::new_from_coeffs([E::Fr::zero(); MAX_DEGREE], 1);
+                let mut divisor = Polynomial::new_from_coeffs([E::Fr::zero(); MAX_DEGREE], 2);
                 divisor.coeffs[0] = -x;
                 divisor.coeffs[1] = E::Fr::one();
                 match dividend.long_division(&divisor) {
@@ -117,41 +117,43 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
 }
 
 impl<E: Engine, const MAX_DEGREE: usize> KZGVerifier<E, MAX_DEGREE> {
-    fn new(parameters: KZGParams<E, MAX_DEGREE>) -> Self {
+    pub fn new(parameters: KZGParams<E, MAX_DEGREE>) -> Self {
         KZGVerifier { parameters }
     }
 
-    fn verify_poly(
+    pub fn verify_poly(
         &self,
         commitment: &KZGCommitment<E>,
         polynomial: &Polynomial<E, MAX_DEGREE>,
     ) -> bool {
-        let mut check = E::G1::identity();
+        let mut check = E::G2::identity();
         for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
             if i == 0 {
-                check += self.parameters.g * coeff;
+                check += self.parameters.h * coeff;
             } else {
-                check += self.parameters.gs[i - 1] * coeff;
+                check += self.parameters.hs[i - 1] * coeff;
             }
         }
 
         check.to_affine() == commitment.0
     }
 
-    fn verify_eval(
+    pub fn verify_eval(
         &self,
         (x, y): (E::Fr, E::Fr),
         commitment: &KZGCommitment<E>,
         witness: &KZGWitness<E>,
     ) -> bool {
         let lhs = E::pairing(
-            &witness.0,
-            &(self.parameters.hs[0].to_curve() + self.parameters.h * -x).to_affine(),
+            &self.parameters.g,
+            &commitment.0
         );
         let rhs = E::pairing(
-            &(commitment.0.to_curve() - self.parameters.g * -y).to_affine(),
-            &self.parameters.h,
-        );
+            &witness.0,
+            &(self.parameters.hs[0].to_curve() - self.parameters.h * x).to_affine()
+        ) + E::pairing(&self.parameters.g, &self.parameters.h) * y;
+
+        println!("lhs: {:#?}, rhs: {:#?}", lhs, rhs);
 
         lhs == rhs
     }
