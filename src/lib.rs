@@ -217,6 +217,15 @@ mod tests {
         setup(s)
     }
 
+    fn test_participants<E: Engine, const MAX_DEGREE: usize>() -> (KZGProver<E, MAX_DEGREE>, KZGVerifier<E, MAX_DEGREE>) {
+        let params = test_setup::<E, MAX_DEGREE>();
+        let prover = KZGProver::new(params.clone());
+        let verifier = KZGVerifier::new(params);
+
+        (prover, verifier)
+    }
+
+
     // never returns zero polynomial
     fn random_polynomial<E: Engine, const MAX_DEGREE: usize>(min_degree: usize) -> Polynomial<E, MAX_DEGREE> {
         let degree = RNG_1.lock().unwrap().gen_range(min_degree..MAX_DEGREE);
@@ -237,12 +246,18 @@ mod tests {
         assert!(!verifier.verify_poly(&commitment, &polynomial), "expected verify_poly to fail for commitment {:#?} and polynomial {:#?} but it didn't", commitment, polynomial);
     }
 
+    fn assert_verify_eval<E: Engine + Debug, const MAX_DEGREE: usize>(verifier: &KZGVerifier<E, MAX_DEGREE>, point: (E::Fr, E::Fr), commitment: &KZGCommitment<E>, witness: &KZGWitness<E>) {
+        assert!(verifier.verify_eval(point, &commitment, &witness), "verify_eval failed for point {:#?}, commitment {:#?}, and witness {:#?}", point, commitment, witness);
+    }
+
+    fn assert_verify_eval_fails<E: Engine + Debug, const MAX_DEGREE: usize>(verifier: &KZGVerifier<E, MAX_DEGREE>, point: (E::Fr, E::Fr), commitment: &KZGCommitment<E>, witness: &KZGWitness<E>) {
+        assert!(!verifier.verify_eval(point, &commitment, &witness), "expected verify_eval to fail for for point {:#?}, commitment {:#?}, and witness {:#?}, but it didn't", point, commitment, witness);
+    }
+
 
     #[test]
     fn test_basic() {
-        let params = test_setup::<Bls12, 10>();
-        let mut prover = KZGProver::new(params.clone());
-        let verifier = KZGVerifier::new(params);
+        let (mut prover, verifier) = test_participants::<Bls12, 10>();
 
         let polynomial = random_polynomial(1);
         let commitment = prover.commit(polynomial.clone());
@@ -251,24 +266,45 @@ mod tests {
         assert_verify_poly_fails(&verifier, &commitment, &random_polynomial(1));
     }
 
+    fn random_field_elem_neq<E: Engine>(val: E::Fr) -> E::Fr {
+        let mut v: E::Fr = RNG_1.lock().unwrap().gen::<u64>().into();
+        while v == val {
+            v = RNG_1.lock().unwrap().gen::<u64>().into();
+        }
+
+        v
+    }
+
     #[test]
     fn test_modify_single_coeff() {
-        let params = test_setup::<Bls12, 8>();
-        let mut prover = KZGProver::new(params.clone());
-        let verifier = KZGVerifier::new(params);
+        let (mut prover, verifier) = test_participants::<Bls12, 8>();
         
         let polynomial = random_polynomial(4);
         let commitment = prover.commit(polynomial.clone());
 
         let mut modified_polynomial = polynomial.clone();
-        let mut new_coeff: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
-        while new_coeff == modified_polynomial.coeffs[2] {
-            new_coeff = RNG_1.lock().unwrap().gen::<u64>().into();
-        }
+        let new_coeff = random_field_elem_neq::<Bls12>(modified_polynomial.coeffs[2]);
         modified_polynomial.coeffs[2] = new_coeff;
 
         assert_verify_poly(&verifier, &commitment, &polynomial);
         assert_verify_poly_fails(&verifier, &commitment, &modified_polynomial);
+    }
+
+    #[test]
+    fn test_eval_basic() {
+        let (mut prover, verifier) = test_participants::<Bls12, 13>();
+
+        let polynomial = random_polynomial(5);
+        let commitment = prover.commit(polynomial.clone());
+
+        let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+        let y = polynomial.eval(x);
+
+        let witness = prover.create_witness((x, y)).unwrap();
+        assert_verify_eval(&verifier, (x, y), &commitment, &witness);
+
+        let y_prime = random_field_elem_neq::<Bls12>(y);
+        assert_verify_eval_fails(&verifier, (x, y_prime), &commitment, &witness);
     }
 
 }
