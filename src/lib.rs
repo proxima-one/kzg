@@ -28,7 +28,7 @@ pub struct KZGParams<E: Engine, const MAX_DEGREE: usize> {
 
 // the commitment - "C" in the paper. It's a single group element
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct KZGCommitment<E: Engine>(E::G2Affine);
+pub struct KZGCommitment<E: Engine>(E::G1Affine);
 
 // A witness for a single element - "w_i" in the paper. It's a group element.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -67,12 +67,12 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
     }
 
     pub fn commit(&mut self, polynomial: Polynomial<E, MAX_DEGREE>) -> KZGCommitment<E> {
-        let mut commitment = E::G2::identity();
+        let mut commitment = E::G1::identity();
         for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
             if i == 0 {
-                commitment += self.parameters.h * coeff;
+                commitment += self.parameters.g * coeff;
             } else {
-                commitment += self.parameters.hs[i - 1] * coeff;
+                commitment += self.parameters.gs[i - 1] * coeff;
             }
         }
 
@@ -126,12 +126,12 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGVerifier<E, MAX_DEGREE> {
         commitment: &KZGCommitment<E>,
         polynomial: &Polynomial<E, MAX_DEGREE>,
     ) -> bool {
-        let mut check = E::G2::identity();
+        let mut check = E::G1::identity();
         for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
             if i == 0 {
-                check += self.parameters.h * coeff;
+                check += self.parameters.g * coeff;
             } else {
-                check += self.parameters.hs[i - 1] * coeff;
+                check += self.parameters.gs[i - 1] * coeff;
             }
         }
 
@@ -145,13 +145,13 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGVerifier<E, MAX_DEGREE> {
         witness: &KZGWitness<E>,
     ) -> bool {
         let lhs = E::pairing(
-            &self.parameters.g,
-            &commitment.0
-        );
-        let rhs = E::pairing(
             &witness.0,
             &(self.parameters.hs[0].to_curve() - self.parameters.h * x).to_affine()
-        ) + E::pairing(&self.parameters.g, &self.parameters.h) * y;
+        );
+        let rhs = E::pairing(
+            &(commitment.0.to_curve() - self.parameters.g * y).to_affine(),
+            &self.parameters.h
+        );
 
         println!("lhs: {:#?}, rhs: {:#?}", lhs, rhs);
 
