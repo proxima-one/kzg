@@ -5,15 +5,16 @@ use pairing::{
     group::{ff::Field, Curve, Group},
     Engine,
 };
+use std::iter::Iterator;
 
 #[derive(Clone, Debug)]
-pub struct Polynomial<E: Engine, const MAX_DEGREE: usize> {
+pub struct Polynomial<E: Engine, const DEGREE_LIMIT: usize> {
     pub degree: usize,
-    pub coeffs: [E::Fr; MAX_DEGREE],
+    pub coeffs: [E::Fr; DEGREE_LIMIT],
 }
 
-impl<E: Engine, const MAX_DEGREE: usize> PartialEq<Polynomial<E, MAX_DEGREE>>
-    for Polynomial<E, MAX_DEGREE>
+impl<E: Engine, const DEGREE_LIMIT: usize> PartialEq<Polynomial<E, DEGREE_LIMIT>>
+    for Polynomial<E, DEGREE_LIMIT>
 {
     fn eq(&self, other: &Self) -> bool {
         if self.degree() != other.degree() {
@@ -27,40 +28,40 @@ impl<E: Engine, const MAX_DEGREE: usize> PartialEq<Polynomial<E, MAX_DEGREE>>
     }
 }
 
-impl<E: Engine, const MAX_DEGREE: usize> Eq for Polynomial<E, MAX_DEGREE> {}
+impl<E: Engine, const DEGREE_LIMIT: usize> Eq for Polynomial<E, DEGREE_LIMIT> {}
 
-pub struct PolynomialSlice<'a, E: Engine, const MAX_DEGREE: usize> {
+pub struct PolynomialSlice<'a, E: Engine, const DEGREE_LIMIT: usize> {
     degree: usize,
     coeffs: &'a [E::Fr],
 }
 
-impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
+impl<E: Engine, const DEGREE_LIMIT: usize> Polynomial<E, DEGREE_LIMIT> {
     pub fn is_zero(&self) -> bool {
         self.degree() == 0 && self.coeffs[0] == E::Fr::zero()
     }
 
-    pub fn new_zero() -> Polynomial<E, MAX_DEGREE> {
+    pub fn new_zero() -> Polynomial<E, DEGREE_LIMIT> {
         Polynomial {
             degree: 0,
-            coeffs: [E::Fr::zero(); MAX_DEGREE],
+            coeffs: [E::Fr::zero(); DEGREE_LIMIT],
         }
     }
 
-    pub fn new(coeffs: [E::Fr; MAX_DEGREE]) -> Polynomial<E, MAX_DEGREE> {
+    pub fn new(coeffs: [E::Fr; DEGREE_LIMIT]) -> Polynomial<E, DEGREE_LIMIT> {
         // figure out what the initial degree is
-        let degree = Self::compute_degree(&coeffs, MAX_DEGREE);
+        let degree = Self::compute_degree(&coeffs, DEGREE_LIMIT - 1);
         Polynomial { degree, coeffs }
     }
 
     /// note: use this carefully, as setting the degree incorrect can lead to the degree being inconsistent
     pub fn new_from_coeffs(
-        coeffs: [E::Fr; MAX_DEGREE],
+        coeffs: [E::Fr; DEGREE_LIMIT],
         degree: usize,
-    ) -> Polynomial<E, MAX_DEGREE> {
+    ) -> Polynomial<E, DEGREE_LIMIT> {
         Polynomial { degree, coeffs }
     }
 
-    pub fn slice(&self, range: Range<usize>) -> PolynomialSlice<E, MAX_DEGREE> {
+    pub fn slice(&self, range: Range<usize>) -> PolynomialSlice<E, DEGREE_LIMIT> {
         PolynomialSlice {
             degree: Self::compute_degree(&self.coeffs, range.len()),
             coeffs: &self.coeffs[range],
@@ -72,7 +73,7 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
         loop {
 			if i == 0 {
 				break 0
-			} else if coeffs[i-1] != E::Fr::zero() {
+			} else if coeffs[i] != E::Fr::zero() {
                 break i;
 			}
 
@@ -86,28 +87,36 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
     }
 
     pub fn fixup_degree(&mut self) {
-        let degree = Self::compute_degree(&self.coeffs, MAX_DEGREE);
+        let degree = Self::compute_degree(&self.coeffs, DEGREE_LIMIT - 1);
         self.degree = degree;
     }
 
     pub fn lead(&self) -> E::Fr {
-        self.coeffs[self.degree - 1]
+        self.coeffs[self.degree]
     }
 
     pub fn constant(&self) -> E::Fr {
         self.coeffs[0]
     }
 
+    pub fn num_coeffs(&self) -> usize {
+        self.degree + 1
+    }
+
     pub fn degree(&self) -> usize {
         self.degree
+    }
+
+    pub fn iter_coeffs(&self) -> impl Iterator<Item = &E::Fr> {
+        self.coeffs.iter().take(self.num_coeffs())
     }
 
     pub fn eval(&self, x: E::Fr) -> E::Fr {
         let mut res = E::Fr::zero();
         let mut term = E::Fr::one();
 
-        for i in 0..self.degree() {
-            res += self.coeffs[i] * term;
+        for &coeff in self.iter_coeffs() {
+            res += coeff * term;
             term *= x;
         }
 
@@ -117,7 +126,7 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
     pub fn long_division(
         &self,
         divisor: &Self,
-    ) -> (Polynomial<E, MAX_DEGREE>, Option<Polynomial<E, MAX_DEGREE>>) {
+    ) -> (Polynomial<E, DEGREE_LIMIT>, Option<Polynomial<E, DEGREE_LIMIT>>) {
         if self.is_zero() {
             (Self::new_zero(), Some(self.clone()))
         } else if divisor.is_zero() {
@@ -125,7 +134,7 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
         } else {
             let mut remainder = self.clone();
             let mut quotient = Polynomial::new_from_coeffs(
-                [E::Fr::zero(); MAX_DEGREE],
+                [E::Fr::zero(); DEGREE_LIMIT],
                 self.degree() - divisor.degree(),
             );
 
@@ -136,7 +145,7 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
                 let i = remainder.degree() - divisor.degree();
                 quotient.coeffs[i] = factor;
 
-                for (j, &coeff) in divisor.coeffs.iter().enumerate().take(divisor.degree()) {
+                for (j, &coeff) in divisor.iter_coeffs().enumerate() {
                     remainder.coeffs[i + j] -= coeff * factor;
                 }
 
@@ -154,8 +163,8 @@ impl<E: Engine, const MAX_DEGREE: usize> Polynomial<E, MAX_DEGREE> {
     }
 }
 
-impl<'a, E: Engine, const MAX_DEGREE: usize> Add for &'a Polynomial<E, MAX_DEGREE> {
-    type Output = Polynomial<E, MAX_DEGREE>;
+impl<'a, E: Engine, const DEGREE_LIMIT: usize> Add for &'a Polynomial<E, DEGREE_LIMIT> {
+    type Output = Polynomial<E, DEGREE_LIMIT>;
 
     fn add(self, rhs: Self) -> Self::Output {
         let (mut res, shorter) = if rhs.degree() > self.degree {
@@ -172,8 +181,8 @@ impl<'a, E: Engine, const MAX_DEGREE: usize> Add for &'a Polynomial<E, MAX_DEGRE
     }
 }
 
-impl<E: Engine, R: Borrow<Polynomial<E, MAX_DEGREE>>, const MAX_DEGREE: usize> AddAssign<R>
-    for Polynomial<E, MAX_DEGREE>
+impl<E: Engine, R: Borrow<Polynomial<E, DEGREE_LIMIT>>, const DEGREE_LIMIT: usize> AddAssign<R>
+    for Polynomial<E, DEGREE_LIMIT>
 {
     fn add_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
@@ -229,7 +238,6 @@ mod tests {
 				Scalar::zero(),
 			])
 		);
-
 
 		// x^3 + 2x^2 - 3x + 4 / x - 7 = x^2 + 9x + 60 r 424
 		let x: Polynomial<Bls12, 4> =

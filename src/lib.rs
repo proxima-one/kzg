@@ -15,15 +15,15 @@ use polynomial::Polynomial;
 
 /// parameters from tested setup
 #[derive(Clone, Debug)]
-pub struct KZGParams<E: Engine, const MAX_DEGREE: usize> {
+pub struct KZGParams<E: Engine, const DEGREE_LIMIT: usize> {
     /// generator of g
     g: E::G1Affine,
     /// generator of G2
     h: E::G2Affine,
     /// g^alpha^1, g^alpha^2, ...
-    gs: [E::G1Affine; MAX_DEGREE],
+    gs: [E::G1Affine; DEGREE_LIMIT],
     /// g^alpha^1, g^alpha^2, ...
-    hs: [E::G2Affine; MAX_DEGREE],
+    hs: [E::G2Affine; DEGREE_LIMIT],
 }
 
 // the commitment - "C" in the paper. It's a single group element
@@ -42,31 +42,31 @@ pub enum KZGError {
     PointNotOnPolynomial,
 }
 
-pub struct KZGProver<E: Engine, const MAX_DEGREE: usize> {
-    parameters: KZGParams<E, MAX_DEGREE>,
-    polynomial: Option<Polynomial<E, MAX_DEGREE>>,
+pub struct KZGProver<E: Engine, const DEGREE_LIMIT: usize> {
+    parameters: KZGParams<E, DEGREE_LIMIT>,
+    polynomial: Option<Polynomial<E, DEGREE_LIMIT>>,
     commitment: Option<KZGCommitment<E>>,
     batch_witness: Option<E::G1>,
-    witnesses: [Option<E::G1Affine>; MAX_DEGREE],
+    witnesses: [Option<E::G1Affine>; DEGREE_LIMIT],
 }
 
-pub struct KZGVerifier<E: Engine, const MAX_DEGREE: usize> {
-    parameters: KZGParams<E, MAX_DEGREE>,
+pub struct KZGVerifier<E: Engine, const DEGREE_LIMIT: usize> {
+    parameters: KZGParams<E, DEGREE_LIMIT>,
 }
 
-impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
+impl<E: Engine, const DEGREE_LIMIT: usize> KZGProver<E, DEGREE_LIMIT> {
     /// initializes `polynomial` to zero polynomial
-    pub fn new(parameters: KZGParams<E, MAX_DEGREE>) -> Self {
+    pub fn new(parameters: KZGParams<E, DEGREE_LIMIT>) -> Self {
         Self {
             parameters,
             polynomial: None,
             commitment: None,
             batch_witness: None,
-            witnesses: [None; MAX_DEGREE],
+            witnesses: [None; DEGREE_LIMIT],
         }
     }
 
-    pub fn commit(&mut self, polynomial: Polynomial<E, MAX_DEGREE>) -> KZGCommitment<E> {
+    pub fn commit(&mut self, polynomial: Polynomial<E, DEGREE_LIMIT>) -> KZGCommitment<E> {
         let mut commitment = E::G1::identity();
         for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
             if i == 0 {
@@ -80,7 +80,7 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
         KZGCommitment(commitment.to_affine())
     }
 
-    pub fn open(&self) -> Result<Polynomial<E, MAX_DEGREE>, KZGError> {
+    pub fn open(&self) -> Result<Polynomial<E, DEGREE_LIMIT>, KZGError> {
         self.polynomial.clone().ok_or(KZGError::NoPolynomial)
     }
 
@@ -91,7 +91,7 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
                 let mut dividend = polynomial.clone();
                 dividend.coeffs[0] -= y;
 
-                let mut divisor = Polynomial::new_from_coeffs([E::Fr::zero(); MAX_DEGREE], 2);
+                let mut divisor = Polynomial::new_from_coeffs([E::Fr::zero(); DEGREE_LIMIT], 1);
                 divisor.coeffs[0] = -x;
                 divisor.coeffs[1] = E::Fr::one();
                 match dividend.long_division(&divisor) {
@@ -116,15 +116,15 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGProver<E, MAX_DEGREE> {
     }
 }
 
-impl<E: Engine, const MAX_DEGREE: usize> KZGVerifier<E, MAX_DEGREE> {
-    pub fn new(parameters: KZGParams<E, MAX_DEGREE>) -> Self {
+impl<E: Engine, const DEGREE_LIMIT: usize> KZGVerifier<E, DEGREE_LIMIT> {
+    pub fn new(parameters: KZGParams<E, DEGREE_LIMIT>) -> Self {
         KZGVerifier { parameters }
     }
 
     pub fn verify_poly(
         &self,
         commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E, MAX_DEGREE>,
+        polynomial: &Polynomial<E, DEGREE_LIMIT>,
     ) -> bool {
         let mut check = E::G1::identity();
         for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
@@ -159,12 +159,12 @@ impl<E: Engine, const MAX_DEGREE: usize> KZGVerifier<E, MAX_DEGREE> {
     }
 }
 
-pub fn setup<E: Engine, const MAX_DEGREE: usize>(s: E::Fr) -> KZGParams<E, MAX_DEGREE> {
+pub fn setup<E: Engine, const DEGREE_LIMIT: usize>(s: E::Fr) -> KZGParams<E, DEGREE_LIMIT> {
     let g = E::G1Affine::generator();
     let h = E::G2Affine::generator();
 
-    let mut gs = [g; MAX_DEGREE];
-    let mut hs = [h; MAX_DEGREE];
+    let mut gs = [g; DEGREE_LIMIT];
+    let mut hs = [h; DEGREE_LIMIT];
 
     let mut curr = g;
 
@@ -186,7 +186,7 @@ pub fn setup<E: Engine, const MAX_DEGREE: usize>(s: E::Fr) -> KZGParams<E, MAX_D
 use rand::random;
 
 #[cfg(any(csprng_setup, test))]
-pub fn csprng_setup<E: Engine, const MAX_DEGREE: usize>() -> KZGParams<E, MAX_DEGREE> {
+pub fn csprng_setup<E: Engine, const DEGREE_LIMIT: usize>() -> KZGParams<E, DEGREE_LIMIT> {
     let s: E::Fr = random::<u64>().into();
     setup(s)
 }
@@ -214,13 +214,13 @@ mod tests {
         static ref RNG_1: Mutex<SmallRng> = Mutex::new(SmallRng::from_seed(RNG_SEED_1));
     }
 
-    fn test_setup<E: Engine, const MAX_DEGREE: usize>() -> KZGParams<E, MAX_DEGREE> {
+    fn test_setup<E: Engine, const DEGREE_LIMIT: usize>() -> KZGParams<E, DEGREE_LIMIT> {
         let s: E::Fr = RNG_0.lock().unwrap().gen::<u64>().into();
         setup(s)
     }
 
-    fn test_participants<E: Engine, const MAX_DEGREE: usize>() -> (KZGProver<E, MAX_DEGREE>, KZGVerifier<E, MAX_DEGREE>) {
-        let params = test_setup::<E, MAX_DEGREE>();
+    fn test_participants<E: Engine, const DEGREE_LIMIT: usize>() -> (KZGProver<E, DEGREE_LIMIT>, KZGVerifier<E, DEGREE_LIMIT>) {
+        let params = test_setup::<E, DEGREE_LIMIT>();
         let prover = KZGProver::new(params.clone());
         let verifier = KZGVerifier::new(params);
 
@@ -229,9 +229,9 @@ mod tests {
 
 
     // never returns zero polynomial
-    fn random_polynomial<E: Engine, const MAX_DEGREE: usize>(min_degree: usize) -> Polynomial<E, MAX_DEGREE> {
-        let degree = RNG_1.lock().unwrap().gen_range(min_degree..MAX_DEGREE);
-        let mut coeffs = [E::Fr::zero(); MAX_DEGREE];
+    fn random_polynomial<E: Engine, const DEGREE_LIMIT: usize>(min_degree: usize) -> Polynomial<E, DEGREE_LIMIT> {
+        let degree = RNG_1.lock().unwrap().gen_range(min_degree..DEGREE_LIMIT);
+        let mut coeffs = [E::Fr::zero(); DEGREE_LIMIT];
 
         for i in 0..degree {
             coeffs[i] = RNG_1.lock().unwrap().gen::<u64>().into();
@@ -240,19 +240,19 @@ mod tests {
         Polynomial::new_from_coeffs(coeffs, degree)
     }
 
-    fn assert_verify_poly<E: Engine + Debug, const MAX_DEGREE: usize>(verifier: &KZGVerifier<E, MAX_DEGREE>, commitment: &KZGCommitment<E>, polynomial: &Polynomial<E, MAX_DEGREE>) {
+    fn assert_verify_poly<E: Engine + Debug, const DEGREE_LIMIT: usize>(verifier: &KZGVerifier<E, DEGREE_LIMIT>, commitment: &KZGCommitment<E>, polynomial: &Polynomial<E, DEGREE_LIMIT>) {
         assert!(verifier.verify_poly(&commitment, &polynomial), "verify_poly failed for commitment {:#?} and polynomial {:#?}", commitment, polynomial);
     }
 
-    fn assert_verify_poly_fails<E: Engine + Debug, const MAX_DEGREE: usize>(verifier: &KZGVerifier<E, MAX_DEGREE>, commitment: &KZGCommitment<E>, polynomial: &Polynomial<E, MAX_DEGREE>) {
+    fn assert_verify_poly_fails<E: Engine + Debug, const DEGREE_LIMIT: usize>(verifier: &KZGVerifier<E, DEGREE_LIMIT>, commitment: &KZGCommitment<E>, polynomial: &Polynomial<E, DEGREE_LIMIT>) {
         assert!(!verifier.verify_poly(&commitment, &polynomial), "expected verify_poly to fail for commitment {:#?} and polynomial {:#?} but it didn't", commitment, polynomial);
     }
 
-    fn assert_verify_eval<E: Engine + Debug, const MAX_DEGREE: usize>(verifier: &KZGVerifier<E, MAX_DEGREE>, point: (E::Fr, E::Fr), commitment: &KZGCommitment<E>, witness: &KZGWitness<E>) {
+    fn assert_verify_eval<E: Engine + Debug, const DEGREE_LIMIT: usize>(verifier: &KZGVerifier<E, DEGREE_LIMIT>, point: (E::Fr, E::Fr), commitment: &KZGCommitment<E>, witness: &KZGWitness<E>) {
         assert!(verifier.verify_eval(point, &commitment, &witness), "verify_eval failed for point {:#?}, commitment {:#?}, and witness {:#?}", point, commitment, witness);
     }
 
-    fn assert_verify_eval_fails<E: Engine + Debug, const MAX_DEGREE: usize>(verifier: &KZGVerifier<E, MAX_DEGREE>, point: (E::Fr, E::Fr), commitment: &KZGCommitment<E>, witness: &KZGWitness<E>) {
+    fn assert_verify_eval_fails<E: Engine + Debug, const DEGREE_LIMIT: usize>(verifier: &KZGVerifier<E, DEGREE_LIMIT>, point: (E::Fr, E::Fr), commitment: &KZGCommitment<E>, witness: &KZGWitness<E>) {
         assert!(!verifier.verify_eval(point, &commitment, &witness), "expected verify_eval to fail for for point {:#?}, commitment {:#?}, and witness {:#?}, but it didn't", point, commitment, witness);
     }
 
