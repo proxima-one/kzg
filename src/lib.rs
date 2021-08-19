@@ -27,12 +27,14 @@ pub struct KZGParams<E: Engine, const DEGREE_LIMIT: usize> {
 }
 
 // the commitment - "C" in the paper. It's a single group element
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KZGCommitment<E: Engine>(E::G1Affine);
+impl<E: Engine> Copy for KZGCommitment<E> {}
 
 // A witness for a single element - "w_i" in the paper. It's a group element.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KZGWitness<E: Engine>(E::G1Affine);
+impl<E: Engine> Copy for KZGWitness<E> {}
 
 #[derive(Error, Debug)]
 pub enum KZGError {
@@ -75,7 +77,9 @@ impl<E: Engine, const DEGREE_LIMIT: usize> KZGProver<E, DEGREE_LIMIT> {
         }
 
         self.polynomial = Some(polynomial);
-        KZGCommitment(commitment.to_affine())
+        let commitment = KZGCommitment(commitment.to_affine());
+        self.commitment = Some(commitment);
+        commitment
     }
 
     pub fn open(&self) -> Result<Polynomial<E, DEGREE_LIMIT>, KZGError> {
