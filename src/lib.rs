@@ -47,7 +47,6 @@ pub struct KZGProver<E: Engine, const DEGREE_LIMIT: usize> {
     polynomial: Option<Polynomial<E, DEGREE_LIMIT>>,
     commitment: Option<KZGCommitment<E>>,
     batch_witness: Option<E::G1>,
-    witnesses: [Option<E::G1Affine>; DEGREE_LIMIT],
 }
 
 pub struct KZGVerifier<E: Engine, const DEGREE_LIMIT: usize> {
@@ -62,7 +61,6 @@ impl<E: Engine, const DEGREE_LIMIT: usize> KZGProver<E, DEGREE_LIMIT> {
             polynomial: None,
             commitment: None,
             batch_witness: None,
-            witnesses: [None; DEGREE_LIMIT],
         }
     }
 
