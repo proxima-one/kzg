@@ -71,11 +71,11 @@ impl<E: Engine, const DEGREE_LIMIT: usize> Polynomial<E, DEGREE_LIMIT> {
     pub fn compute_degree(coeffs: &[E::Fr], upper_bound: usize) -> usize {
         let mut i = upper_bound;
         loop {
-			if i == 0 {
-				break 0
-			} else if coeffs[i] != E::Fr::zero() {
+            if i == 0 {
+                break 0;
+            } else if coeffs[i] != E::Fr::zero() {
                 break i;
-			}
+            }
 
             i -= 1;
         }
@@ -126,7 +126,10 @@ impl<E: Engine, const DEGREE_LIMIT: usize> Polynomial<E, DEGREE_LIMIT> {
     pub fn long_division(
         &self,
         divisor: &Self,
-    ) -> (Polynomial<E, DEGREE_LIMIT>, Option<Polynomial<E, DEGREE_LIMIT>>) {
+    ) -> (
+        Polynomial<E, DEGREE_LIMIT>,
+        Option<Polynomial<E, DEGREE_LIMIT>>,
+    ) {
         if self.is_zero() {
             (Self::new_zero(), Some(self.clone()))
         } else if divisor.is_zero() {
@@ -203,11 +206,16 @@ mod tests {
 
     #[test]
     fn test_polynomial_division() {
-		// test cases taken from https://tutorial.math.lamar.edu/Solutions/Alg/DividingPolynomials
+        // test cases taken from https://tutorial.math.lamar.edu/Solutions/Alg/DividingPolynomials
 
-		// 3x^4 - 5x^2 + 3 / x + 2 = 3x^3 - 6x^2 + 7x - 14 r 31
-        let x: Polynomial<Bls12, 5> =
-            Polynomial::new([3.into(), Scalar::zero(), -Scalar::from(5), Scalar::zero(), 3.into()]);
+        // 3x^4 - 5x^2 + 3 / x + 2 = 3x^3 - 6x^2 + 7x - 14 r 31
+        let x: Polynomial<Bls12, 5> = Polynomial::new([
+            3.into(),
+            Scalar::zero(),
+            -Scalar::from(5),
+            Scalar::zero(),
+            3.into(),
+        ]);
         let y: Polynomial<Bls12, 5> = Polynomial::new([
             2.into(),
             Scalar::one(),
@@ -228,69 +236,54 @@ mod tests {
                 Scalar::zero()
             ])
         );
-		assert_eq!(
-			q,
-			Polynomial::new([
-				-Scalar::from(14),
-				7.into(),
-				-Scalar::from(6),
-				3.into(),
-				Scalar::zero(),
-			])
-		);
+        assert_eq!(
+            q,
+            Polynomial::new([
+                -Scalar::from(14),
+                7.into(),
+                -Scalar::from(6),
+                3.into(),
+                Scalar::zero(),
+            ])
+        );
 
-		// x^3 + 2x^2 - 3x + 4 / x - 7 = x^2 + 9x + 60 r 424
-		let x: Polynomial<Bls12, 4> =
-			Polynomial::new([4.into(), -Scalar::from(3), 2.into(), Scalar::one()]);
-		let y: Polynomial<Bls12, 4> = Polynomial::new([
-			-Scalar::from(7),
-			Scalar::one(),
-			Scalar::zero(),
-			Scalar::zero(),
-		]);
+        // x^3 + 2x^2 - 3x + 4 / x - 7 = x^2 + 9x + 60 r 424
+        let x: Polynomial<Bls12, 4> =
+            Polynomial::new([4.into(), -Scalar::from(3), 2.into(), Scalar::one()]);
+        let y: Polynomial<Bls12, 4> = Polynomial::new([
+            -Scalar::from(7),
+            Scalar::one(),
+            Scalar::zero(),
+            Scalar::zero(),
+        ]);
 
-		let (q, r) = x.long_division(&y);
-		assert!(r.is_some());
-		assert_eq!(
-			r.unwrap(),
-			Polynomial::new([
-				424.into(),
-				Scalar::zero(),
-				Scalar::zero(),
-				Scalar::zero(),
-			])
-		);
-		assert_eq!(
-			q,
-			Polynomial::new([
-				60.into(),
-				9.into(),
-				Scalar::one(),
-				Scalar::zero(),
-			])
-		);
+        let (q, r) = x.long_division(&y);
+        assert!(r.is_some());
+        assert_eq!(
+            r.unwrap(),
+            Polynomial::new([424.into(), Scalar::zero(), Scalar::zero(), Scalar::zero(),])
+        );
+        assert_eq!(
+            q,
+            Polynomial::new([60.into(), 9.into(), Scalar::one(), Scalar::zero(),])
+        );
 
-		// x^3 + 6x^2 + 13x + 10 / x + 2 = x^2 + 4x + 5 r 0
-		let x: Polynomial<Bls12, 4> =
-			Polynomial::new([10.into(), 13.into(), 6.into(), Scalar::one()]);
-		let y: Polynomial<Bls12, 4> = Polynomial::new([
-			Scalar::from(2),
-			Scalar::one(),
-			Scalar::zero(),
-			Scalar::zero(),
-		]);
+        // x^3 + 6x^2 + 13x + 10 / x + 2 = x^2 + 4x + 5 r 0
+        let x: Polynomial<Bls12, 4> =
+            Polynomial::new([10.into(), 13.into(), 6.into(), Scalar::one()]);
+        let y: Polynomial<Bls12, 4> = Polynomial::new([
+            Scalar::from(2),
+            Scalar::one(),
+            Scalar::zero(),
+            Scalar::zero(),
+        ]);
 
-		let (q, r) = x.long_division(&y);
-		assert!(r.is_none());
-		assert_eq!(
-			q,
-			Polynomial::new([
-				5.into(),
-				4.into(),
-				Scalar::one(),
-				Scalar::zero(),
-			])
-		);
+        let (q, r) = x.long_division(&y);
+        assert!(r.is_none());
+        assert_eq!(
+            q,
+            Polynomial::new([5.into(), 4.into(), Scalar::one(), Scalar::zero(),])
+        );
     }
 
     #[test]
@@ -304,7 +297,7 @@ mod tests {
             Scalar::zero(),
             Scalar::one(),
         ]);
-        
+
         // y(0) = 34
         assert_eq!(polynomial.eval(Scalar::zero()), 34.into());
         // y(1) = 46
