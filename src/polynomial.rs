@@ -1,6 +1,6 @@
 use core::borrow::Borrow;
 use core::cmp::{Eq, PartialEq};
-use core::ops::{Add, AddAssign, Div, Mul, Range};
+use core::ops::{Add, AddAssign, Sub, SubAssign, Div, Mul, Range};
 use pairing::{
     group::{ff::Field, Curve, Group},
     Engine,
@@ -164,6 +164,80 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
             }
         }
     }
+
+    pub fn lagrange_interpolation(xs: &[E::Fr; MAX_COEFFS], ys: &[E::Fr; MAX_COEFFS]) -> Polynomial<E, MAX_COEFFS> {
+        sum_tree(MAX_COEFFS, &|i| {
+            product_tree(MAX_COEFFS - 1, &|j| {
+                if j < i {
+                    let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
+                    let d = xs[i] - xs[j];
+                    let d = d.invert().unwrap();
+                    coeffs[0] = -xs[j] * d;
+                    coeffs[1] = d;
+
+                    Polynomial::new_from_coeffs(coeffs, 1)
+                } else {
+                    let j = j + i;
+
+                    let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
+                    let d = xs[i] - xs[j];
+                    let d = d.invert().unwrap();
+                    coeffs[0] = -xs[j] * d;
+                    coeffs[1] = d;
+
+                    Polynomial::new_from_coeffs(coeffs, 1)
+                }
+            })
+        })
+    }
+}
+
+fn product_tree_inner<T, F>(left: usize, size: usize, get_elem: &F) -> T
+where
+    T: Mul<Output = T>,
+    F: Fn(usize) -> T
+{
+    assert!(size > 0);
+    if size == 1 {
+        get_elem(left)
+    } else if size == 2 {
+        get_elem(left) * get_elem(left + 1)
+    } else {
+        let mid = left + (size / 2);
+        product_tree_inner(left, size / 2, get_elem) * product_tree_inner(mid, size - (size / 2), get_elem)
+    }
+}
+
+fn product_tree<T, F>(size: usize, get_elem: &F) -> T
+where
+    T: Mul<Output = T>,
+    F: Fn(usize) -> T
+{
+    product_tree_inner(0, size, get_elem)
+}
+
+fn sum_tree_inner<T, F>(left: usize, size: usize, get_elem: &F) -> T
+where
+    T: Add<Output = T> ,
+    F: Fn(usize) -> T
+{
+    assert!(size > 0);
+    if size == 1 {
+        get_elem(left)
+    } else if size == 2 {
+        get_elem(left) + get_elem(left + 1)
+    } else {
+        let mid = left + (size / 2);
+        sum_tree_inner(left, size / 2, get_elem) + sum_tree_inner(mid, size - (size / 2), get_elem)
+    }
+}
+
+fn sum_tree<T, F>(size: usize, get_elem: &F) -> T
+where
+    T: Add<Output = T>,
+    F: Fn(usize) -> T
+{
+    sum_tree_inner(0, size, get_elem)
 }
 
 impl<'a, E: Engine, const MAX_COEFFS: usize> Add for &'a Polynomial<E, MAX_COEFFS> {
@@ -184,18 +258,86 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> Add for &'a Polynomial<E, MAX_COEFF
     }
 }
 
+impl<E: Engine, const MAX_COEFFS: usize> Add for Polynomial<E, MAX_COEFFS> {
+    type Output = Polynomial<E, MAX_COEFFS>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let (mut res, shorter) = if rhs.degree() > self.degree {
+            (rhs, self)
+        } else {
+            (self, rhs)
+        };
+
+        for i in 0..shorter.degree() {
+            res.coeffs[i] += shorter.coeffs[i];
+        }
+
+        res
+    }
+}
+
 impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> AddAssign<R>
     for Polynomial<E, MAX_COEFFS>
 {
     fn add_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
-        for i in 0..rhs.degree() {
+        for i in 0..rhs.num_coeffs() {
             self.coeffs[i] += rhs.coeffs[i];
         }
 
-        if rhs.degree() > self.degree() {
-            self.degree = rhs.degree();
+        self.fixup_degree();
+    }
+}
+
+impl<'a, E: Engine, const MAX_COEFFS: usize> Sub for &'a Polynomial<E, MAX_COEFFS> {
+    type Output = Polynomial<E, MAX_COEFFS>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let mut res = self.clone();
+        for i in 0..rhs.num_coeffs() {
+            res.coeffs[i] -= rhs.coeffs[i];
         }
+
+        res
+    }
+}
+
+impl<E: Engine, const MAX_COEFFS: usize> Sub for Polynomial<E, MAX_COEFFS> {
+    type Output = Polynomial<E, MAX_COEFFS>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let mut res = self;
+        for i in 0..rhs.num_coeffs() {
+            res.coeffs[i] -= rhs.coeffs[i];
+        }
+
+        res
+    }
+}
+
+impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> SubAssign<R> for Polynomial<E, MAX_COEFFS> {
+    fn sub_assign(&mut self, rhs: R) {
+        let rhs = rhs.borrow();
+        for i in 0..rhs.num_coeffs() {
+            self.coeffs[i] -= rhs.coeffs[i];
+        }
+
+        self.fixup_degree()
+    }
+}
+
+impl<'a, E: Engine, const MAX_COEFFS: usize> Mul for Polynomial<E, MAX_COEFFS> {
+    type Output = Polynomial<E, MAX_COEFFS>;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        sum_tree(self.num_coeffs(), &|i| {
+            let mut res = Polynomial::new_zero();
+            for j in 0..rhs.num_coeffs() {
+                res.coeffs[j] = self.coeffs[i] * rhs.coeffs[j]; 
+            }
+
+            res
+        })
     }
 }
 
