@@ -166,8 +166,8 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
     }
 
     pub fn lagrange_interpolation(xs: &[E::Fr; MAX_COEFFS], ys: &[E::Fr; MAX_COEFFS]) -> Polynomial<E, MAX_COEFFS> {
-        sum_tree(MAX_COEFFS, &|i| {
-            product_tree(MAX_COEFFS - 1, &|j| {
+        op_tree(MAX_COEFFS, &|i| {
+            op_tree(MAX_COEFFS - 1, &|j| {
                 if j < i {
                     let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
                     let d = xs[i] - xs[j];
@@ -187,57 +187,35 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
 
                     Polynomial::new_from_coeffs(coeffs, 1)
                 }
-            })
-        })
+            }, &|a, b| a * b)
+        }, &|a, b| a + b)
     }
 }
 
-fn product_tree_inner<T, F>(left: usize, size: usize, get_elem: &F) -> T
+fn op_tree_inner<T, F, O>(left: usize, size: usize, get_elem: &F, op: &O) -> T
 where
-    T: Mul<Output = T>,
-    F: Fn(usize) -> T
+    F: Fn(usize) -> T,
+    O: Fn(T, T) -> T
 {
     assert!(size > 0);
     if size == 1 {
+        println!("{}", left);
         get_elem(left)
     } else if size == 2 {
-        get_elem(left) * get_elem(left + 1)
+        println!("{}", left);
+        op(get_elem(left), get_elem(left + 1))
     } else {
         let mid = left + (size / 2);
-        product_tree_inner(left, size / 2, get_elem) * product_tree_inner(mid, size - (size / 2), get_elem)
+        op(op_tree_inner(left, size / 2, get_elem, op), op_tree_inner(mid, size - (size / 2), get_elem, op))
     }
 }
 
-fn product_tree<T, F>(size: usize, get_elem: &F) -> T
+fn op_tree<T, F, O>(size: usize, get_elem: &F, op: &O) -> T
 where
-    T: Mul<Output = T>,
-    F: Fn(usize) -> T
+    F: Fn(usize) -> T,
+    O: Fn(T, T) -> T
 {
-    product_tree_inner(0, size, get_elem)
-}
-
-fn sum_tree_inner<T, F>(left: usize, size: usize, get_elem: &F) -> T
-where
-    T: Add<Output = T> ,
-    F: Fn(usize) -> T
-{
-    assert!(size > 0);
-    if size == 1 {
-        get_elem(left)
-    } else if size == 2 {
-        get_elem(left) + get_elem(left + 1)
-    } else {
-        let mid = left + (size / 2);
-        sum_tree_inner(left, size / 2, get_elem) + sum_tree_inner(mid, size - (size / 2), get_elem)
-    }
-}
-
-fn sum_tree<T, F>(size: usize, get_elem: &F) -> T
-where
-    T: Add<Output = T>,
-    F: Fn(usize) -> T
-{
-    sum_tree_inner(0, size, get_elem)
+    op_tree_inner(0, size, get_elem, op)
 }
 
 impl<'a, E: Engine, const MAX_COEFFS: usize> Add for &'a Polynomial<E, MAX_COEFFS> {
@@ -302,19 +280,6 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> Sub for &'a Polynomial<E, MAX_COEFF
     }
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> Sub for Polynomial<E, MAX_COEFFS> {
-    type Output = Polynomial<E, MAX_COEFFS>;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        let mut res = self;
-        for i in 0..rhs.num_coeffs() {
-            res.coeffs[i] -= rhs.coeffs[i];
-        }
-
-        res
-    }
-}
-
 impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> SubAssign<R> for Polynomial<E, MAX_COEFFS> {
     fn sub_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
@@ -330,14 +295,14 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> Mul for Polynomial<E, MAX_COEFFS> {
     type Output = Polynomial<E, MAX_COEFFS>;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        sum_tree(self.num_coeffs(), &|i| {
+        op_tree(self.num_coeffs(), &|i| {
             let mut res = Polynomial::new_zero();
             for j in 0..rhs.num_coeffs() {
                 res.coeffs[j] = self.coeffs[i] * rhs.coeffs[j]; 
             }
 
             res
-        })
+        }, &|a, b| a + b)
     }
 }
 
@@ -446,5 +411,42 @@ mod tests {
         assert_eq!(polynomial.eval(Scalar::one()), 46.into());
         // y(5) = 3834
         assert_eq!(polynomial.eval(5.into()), 3834.into());
+    }
+
+
+    fn do_test_sum_tree(ops: &Vec<i32>) {
+        let expected = ops.iter().fold(0, |acc, curr| acc + curr);
+        let got = op_tree(ops.len(), &|i| ops[i], &|a, b| a + b);
+        assert_eq!(expected, got);
+    }
+
+    fn do_test_product_tree(ops: &Vec<i32>) {
+        let expected = ops.iter().fold(1, |acc, curr| acc * curr);
+        let got = op_tree(ops.len(), &|i| ops[i], &|a, b| a * b);
+        assert_eq!(expected, got);
+    }
+        
+
+    #[test]
+    fn test_tree_math() {
+        let ops = vec![0];
+        do_test_sum_tree(&ops);
+        do_test_product_tree(&ops);
+
+        let ops = vec![4, 2];
+        do_test_sum_tree(&ops);
+        do_test_product_tree(&ops);
+
+        let ops = vec![9, 41, -5];
+        do_test_sum_tree(&ops);
+        do_test_product_tree(&ops);
+
+        let ops = vec![1, 5, 8, 9, 12, -5, 0, 34, -9];
+        do_test_sum_tree(&ops);
+        do_test_product_tree(&ops);
+
+        let ops = vec![-1, 4, 9, 11, -4, 10, 2, 4, 4, 4, 7, -1];
+        do_test_sum_tree(&ops);
+        do_test_product_tree(&ops);
     }
 }
