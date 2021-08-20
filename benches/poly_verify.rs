@@ -6,7 +6,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-pub fn csprng_setup<E: Engine, const DEGREE_LIMIT: usize>() -> KZGParams<E, DEGREE_LIMIT> {
+pub fn csprng_setup<E: Engine, const MAX_COEFFS: usize>() -> KZGParams<E, MAX_COEFFS> {
     let s: E::Fr = rand::random::<u64>().into();
     setup(s)
 }
