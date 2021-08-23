@@ -1,9 +1,10 @@
 ## kzg
 
-**This project is incomplete.**
 **This code has not beed audited - use it at your own risk.**
 
 `kzg` is a simple implementation of the [Kate-Zaverucha-Goldberg polynomial commitment scheme](https://www.iacr.org/archive/asiacrypt2010/6477178/6477178.pdf) over the [`zkcrypto`](https://github.com/zkcrypto) ecosystem's primitives, mainly their [`pairing`](https://github.com/zkcrypto/pairing) abstraction.
+
+`kzg` implements the "simple" variant described in the paper as "DL", including batched openings.
 
 ### Author's Note
 
