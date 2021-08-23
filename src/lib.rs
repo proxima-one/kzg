@@ -4,7 +4,7 @@ extern crate std;
 
 use core::fmt::Debug;
 use pairing::{
-    group::{ff::Field, prime::PrimeCurveAffine, Curve, Group},
+    group::{ff::Field, prime::PrimeCurveAffine, Curve},
     Engine,
 };
 use thiserror::Error;

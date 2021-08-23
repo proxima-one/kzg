@@ -1,8 +1,8 @@
 use core::borrow::Borrow;
 use core::cmp::{Eq, PartialEq};
-use core::ops::{Add, AddAssign, Sub, SubAssign, Div, Mul, Range};
+use core::ops::{Add, AddAssign, Sub, SubAssign, Mul, Range};
 use pairing::{
-    group::{ff::Field, Curve, Group},
+    group::{ff::Field},
     Engine,
 };
 use std::iter::Iterator;
@@ -31,8 +31,8 @@ impl<E: Engine, const MAX_COEFFS: usize> PartialEq<Polynomial<E, MAX_COEFFS>>
 impl<E: Engine, const MAX_COEFFS: usize> Eq for Polynomial<E, MAX_COEFFS> {}
 
 pub struct PolynomialSlice<'a, E: Engine, const MAX_COEFFS: usize> {
-    degree: usize,
-    coeffs: &'a [E::Fr],
+    pub degree: usize,
+    pub coeffs: &'a [E::Fr],
 }
 
 impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
