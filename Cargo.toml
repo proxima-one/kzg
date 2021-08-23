@@ -33,3 +33,11 @@ harness = false
 [[bench]]
 name = "poly_verify"
 harness = false
+
+[[bench]]
+name = "create_witness"
+harness = false
+
+[[bench]]
+name = "verify_eval"
+harness = false

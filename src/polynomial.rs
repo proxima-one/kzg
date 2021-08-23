@@ -155,8 +155,6 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
                 remainder.shrink_degree();
             }
 
-            quotient.fixup_degree();
-
             if remainder.is_zero() {
                 (quotient, None)
             } else {
@@ -165,30 +163,39 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
         }
     }
 
-    pub fn lagrange_interpolation(xs: &[E::Fr; MAX_COEFFS], ys: &[E::Fr; MAX_COEFFS]) -> Polynomial<E, MAX_COEFFS> {
-        op_tree(MAX_COEFFS, &|i| {
-            op_tree(MAX_COEFFS - 1, &|j| {
-                if j < i {
-                    let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
-                    let d = xs[i] - xs[j];
-                    let d = d.invert().unwrap();
-                    coeffs[0] = -xs[j] * d;
-                    coeffs[1] = d;
+    pub fn lagrange_interpolation(xs: &[E::Fr], ys: &[E::Fr]) -> Polynomial<E, MAX_COEFFS> {
+        assert_eq!(xs.len(), ys.len());
+        
+        op_tree(
+            xs.len(), 
+            &|i| {
+                op_tree(
+                    xs.len() - 1, 
+                    &|mut j| {
+                        if j >= i {
+                            j += 1;
+                        }
 
-                    Polynomial::new_from_coeffs(coeffs, 1)
-                } else {
-                    let j = j + i;
+                        let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
+                        let d = xs[i] - xs[j];
+                        let d = d.invert().unwrap();
+                        coeffs[0] = -xs[j] * d;
+                        coeffs[1] = d;
 
-                    let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
-                    let d = xs[i] - xs[j];
-                    let d = d.invert().unwrap();
-                    coeffs[0] = -xs[j] * d;
-                    coeffs[1] = d;
+                        Polynomial::new_from_coeffs(coeffs, 1)
+                    }, 
+                    &|a, b| a * b
+                ).scalar_multiplication(ys[i])
+            }, 
+            &|a, b| a + b
+        )
+    }
 
-                    Polynomial::new_from_coeffs(coeffs, 1)
-                }
-            }, &|a, b| a * b)
-        }, &|a, b| a + b)
+    pub fn scalar_multiplication(mut self, rhs: E::Fr) -> Polynomial<E, MAX_COEFFS> {
+        for i in 0..self.num_coeffs() {
+            self.coeffs[i] *= rhs;
+        }
+        self
     }
 }
 
@@ -199,10 +206,8 @@ where
 {
     assert!(size > 0);
     if size == 1 {
-        println!("{}", left);
         get_elem(left)
     } else if size == 2 {
-        println!("{}", left);
         op(get_elem(left), get_elem(left + 1))
     } else {
         let mid = left + (size / 2);
@@ -210,7 +215,7 @@ where
     }
 }
 
-fn op_tree<T, F, O>(size: usize, get_elem: &F, op: &O) -> T
+pub fn op_tree<T, F, O>(size: usize, get_elem: &F, op: &O) -> T
 where
     F: Fn(usize) -> T,
     O: Fn(T, T) -> T
@@ -240,13 +245,13 @@ impl<E: Engine, const MAX_COEFFS: usize> Add for Polynomial<E, MAX_COEFFS> {
     type Output = Polynomial<E, MAX_COEFFS>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let (mut res, shorter) = if rhs.degree() > self.degree {
+        let (mut res, shorter) = if rhs.degree() > self.degree() {
             (rhs, self)
         } else {
             (self, rhs)
         };
 
-        for i in 0..shorter.degree() {
+        for i in 0..shorter.num_coeffs() {
             res.coeffs[i] += shorter.coeffs[i];
         }
 
@@ -263,7 +268,9 @@ impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> A
             self.coeffs[i] += rhs.coeffs[i];
         }
 
-        self.fixup_degree();
+        if self.degree() < rhs.degree() {
+            self.degree = rhs.degree();
+        }
     }
 }
 
@@ -291,18 +298,19 @@ impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> S
     }
 }
 
-impl<'a, E: Engine, const MAX_COEFFS: usize> Mul for Polynomial<E, MAX_COEFFS> {
+impl<E: Engine, const MAX_COEFFS: usize> Mul<Polynomial<E, MAX_COEFFS>> for Polynomial<E, MAX_COEFFS> {
     type Output = Polynomial<E, MAX_COEFFS>;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        op_tree(self.num_coeffs(), &|i| {
-            let mut res = Polynomial::new_zero();
+        let mut res = Polynomial::new_zero();
+        for i in 0..self.num_coeffs() {
             for j in 0..rhs.num_coeffs() {
-                res.coeffs[j] = self.coeffs[i] * rhs.coeffs[j]; 
+                res.coeffs[i + j] += self.coeffs[i] * rhs.coeffs[j];
             }
+        }
 
-            res
-        }, &|a, b| a + b)
+        res.degree = self.degree() + rhs.degree();
+        res
     }
 }
 
@@ -448,5 +456,16 @@ mod tests {
         let ops = vec![-1, 4, 9, 11, -4, 10, 2, 4, 4, 4, 7, -1];
         do_test_sum_tree(&ops);
         do_test_product_tree(&ops);
+    }
+
+    #[test]
+    fn test_interpolation() {
+        let xs: Vec<Scalar> = vec![2, 5, 7, 90, 111, 31, 29].into_iter().map(|x| x.into()).collect();
+        let ys: Vec<Scalar> = vec![8, 1, 43, 2, 87, 122, 13].into_iter().map(|x| x.into()).collect();
+        let interpolation = Polynomial::<Bls12, 8>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+
+        for (&x, &y) in xs.iter().zip(ys.iter()) {
+            assert_eq!(interpolation.eval(x), y);
+        }
     }
 }

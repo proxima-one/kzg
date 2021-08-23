@@ -11,7 +11,10 @@ use thiserror::Error;
 
 pub mod polynomial;
 
-use polynomial::Polynomial;
+use polynomial::{
+    Polynomial,
+    op_tree
+};
 
 /// parameters from tested setup
 #[derive(Clone, Debug)]
@@ -36,19 +39,27 @@ impl<E: Engine> Copy for KZGCommitment<E> {}
 pub struct KZGWitness<E: Engine>(E::G1Affine);
 impl<E: Engine> Copy for KZGWitness<E> {}
 
+// A witness for a several elements - "w_B" in the paper. It's a single group element plus a polynomial
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KZGBatchWitness<E: Engine, const MAX_COEFFS: usize>{
+    r: Polynomial<E, MAX_COEFFS>,
+    w: E::G1Affine
+}
+
 #[derive(Error, Debug)]
 pub enum KZGError {
     #[error("no polynomial!")]
     NoPolynomial,
     #[error("point not on polynomial!")]
     PointNotOnPolynomial,
+    #[error("batch opening remainder is zero!")]
+    BatchOpeningZeroRemainder,
 }
 
 pub struct KZGProver<E: Engine, const MAX_COEFFS: usize> {
     parameters: KZGParams<E, MAX_COEFFS>,
     polynomial: Option<Polynomial<E, MAX_COEFFS>>,
     commitment: Option<KZGCommitment<E>>,
-    batch_witness: Option<E::G1>,
 }
 
 pub struct KZGVerifier<E: Engine, const MAX_COEFFS: usize> {
@@ -62,22 +73,24 @@ impl<E: Engine, const MAX_COEFFS: usize> KZGProver<E, MAX_COEFFS> {
             parameters,
             polynomial: None,
             commitment: None,
-            batch_witness: None,
         }
     }
 
     pub fn commit(&mut self, polynomial: Polynomial<E, MAX_COEFFS>) -> KZGCommitment<E> {
-        let mut commitment = E::G1::identity();
-        for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
-            if i == 0 {
-                commitment += self.parameters.g * coeff;
-            } else {
-                commitment += self.parameters.gs[i - 1] * coeff;
-            }
-        }
+        let commitment = op_tree(
+            polynomial.num_coeffs(),
+            &|i| {
+                if i == 0 {
+                    self.parameters.g * polynomial.coeffs[i]
+                } else {
+                    self.parameters.gs[i - 1] * polynomial.coeffs[i]
+                }
+            },
+            &|a, b| a + b
+        ).to_affine();
 
         self.polynomial = Some(polynomial);
-        let commitment = KZGCommitment(commitment.to_affine());
+        let commitment = KZGCommitment(commitment);
         self.commitment = Some(commitment);
         commitment
     }
@@ -101,16 +114,61 @@ impl<E: Engine, const MAX_COEFFS: usize> KZGProver<E, MAX_COEFFS> {
                     // self.polynomial(point.y) != point.1
                     (_, Some(_)) => Err(KZGError::PointNotOnPolynomial),
                     (psi, None) => {
-                        let mut witness = E::G1::identity();
-                        for (i, &coeff) in psi.coeffs.iter().enumerate() {
-                            if i == 0 {
-                                witness += self.parameters.g * coeff;
-                            } else {
-                                witness += self.parameters.gs[i - 1] * coeff;
-                            }
-                        }
+                        let witness = op_tree(
+                            psi.num_coeffs(), 
+                            &|i| {
+                                if i == 0 {
+                                    self.parameters.g * psi.coeffs[i]
+                                } else {
+                                    self.parameters.gs[i - 1] * psi.coeffs[i]
+                                }
+                            },
+                            &|a, b| a + b
+                        ).to_affine(); 
 
-                        Ok(KZGWitness(witness.to_affine()))
+                        Ok(KZGWitness(witness))
+                    }
+                }
+            }
+        }
+    }
+
+    // #[cfg(any(std))]
+    pub fn create_witness_batched(&mut self, points: &Vec<(E::Fr, E::Fr)>) -> Result<KZGBatchWitness<E, MAX_COEFFS>, KZGError> {
+        match self.polynomial {
+            None => Err(KZGError::NoPolynomial),
+            Some(ref polynomial) => {
+                let zeros: Polynomial<E, MAX_COEFFS> = op_tree(
+                    points.len(),
+                    &|i| {
+                        let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
+                        coeffs[0] = -points[i].0;
+                        coeffs[1] = E::Fr::one();
+                        Polynomial::new_from_coeffs(coeffs, 1)
+                    },
+                    &|a, b| a * b
+                );
+                
+                let (xs, ys): (Vec<E::Fr>, Vec<E::Fr>) = points.iter().cloned().unzip();
+                let interpolation = Polynomial::<E, MAX_COEFFS>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+
+                let numerator = polynomial - &interpolation;
+                let (psi, rem) = numerator.long_division(&zeros);
+                match rem {
+                    Some(_) => Err(KZGError::PointNotOnPolynomial),
+                    None => {
+                        let w = op_tree(
+                            psi.num_coeffs(),
+                            &|i| {
+                                if i == 0 {
+                                    self.parameters.g * psi.coeffs[i]
+                                } else {
+                                    self.parameters.gs[i - 1] * psi.coeffs[i]
+                                }
+                            },
+                            &|a, b| a + b
+                        ).to_affine();
+                        Ok(KZGBatchWitness { r: interpolation, w })
                     }
                 }
             }
@@ -128,14 +186,17 @@ impl<E: Engine, const MAX_COEFFS: usize> KZGVerifier<E, MAX_COEFFS> {
         commitment: &KZGCommitment<E>,
         polynomial: &Polynomial<E, MAX_COEFFS>,
     ) -> bool {
-        let mut check = E::G1::identity();
-        for (i, &coeff) in polynomial.coeffs.iter().enumerate() {
-            if i == 0 {
-                check += self.parameters.g * coeff;
-            } else {
-                check += self.parameters.gs[i - 1] * coeff;
-            }
-        }
+        let check = op_tree(
+            polynomial.num_coeffs(), 
+            &|i| {
+                if i == 0 {
+                    self.parameters.g * polynomial.coeffs[i]
+                } else {
+                    self.parameters.gs[i - 1] * polynomial.coeffs[i]
+                }
+            },
+            &|a, b| a + b
+        );
 
         check.to_affine() == commitment.0
     }
@@ -155,7 +216,55 @@ impl<E: Engine, const MAX_COEFFS: usize> KZGVerifier<E, MAX_COEFFS> {
             &self.parameters.h,
         );
 
-        println!("lhs: {:#?}, rhs: {:#?}", lhs, rhs);
+        lhs == rhs
+    }
+
+    pub fn verify_eval_batched(
+        &self,
+        points: &Vec<(E::Fr, E::Fr)>,
+        commitment: &KZGCommitment<E>,
+        witness: &KZGBatchWitness<E, MAX_COEFFS>
+    ) -> bool {
+        let z: Polynomial<E, MAX_COEFFS> = op_tree(
+            points.len(),
+            &|i| {
+                let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
+                coeffs[0] = -points[i].0;
+                coeffs[1] = E::Fr::one();
+                Polynomial::new_from_coeffs(coeffs, 1)
+            },
+            &|a, b| a * b
+        );
+
+        let hz = op_tree(
+            z.num_coeffs(),
+            &|i| {
+                if i == 0 {
+                    self.parameters.h * z.coeffs[i]
+                } else {
+                    self.parameters.hs[i - 1] * z.coeffs[i]
+                }
+            },
+            &|a, b| a + b
+        ).to_affine();
+
+        let gr = op_tree(
+            witness.r.num_coeffs(),
+            &|i| {
+                if i == 0 {
+                    self.parameters.g * witness.r.coeffs[i]
+                } else {
+                    self.parameters.gs[i - 1] * witness.r.coeffs[i]
+                }
+            },
+            &|a, b| a + b
+        );
+
+        let lhs = E::pairing(&witness.w, &hz);
+        let rhs = E::pairing(
+            &(commitment.0.to_curve() - gr).to_affine(),
+            &self.parameters.h
+        );
 
         lhs == rhs
     }
@@ -225,16 +334,16 @@ mod tests {
 
     // never returns zero polynomial
     fn random_polynomial<E: Engine, const MAX_COEFFS: usize>(
-        min_degree: usize,
+        min_coeffs: usize,
     ) -> Polynomial<E, MAX_COEFFS> {
-        let degree = RNG_1.lock().unwrap().gen_range(min_degree..MAX_COEFFS);
+        let num_coeffs = RNG_1.lock().unwrap().gen_range(min_coeffs..MAX_COEFFS);
         let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
 
-        for i in 0..degree {
+        for i in 0..num_coeffs {
             coeffs[i] = RNG_1.lock().unwrap().gen::<u64>().into();
         }
 
-        Polynomial::new_from_coeffs(coeffs, degree)
+        Polynomial::new_from_coeffs(coeffs, num_coeffs - 1)
     }
 
     fn assert_verify_poly<E: Engine + Debug, const MAX_COEFFS: usize>(
@@ -337,5 +446,29 @@ mod tests {
 
         let y_prime = random_field_elem_neq::<Bls12>(y);
         assert_verify_eval_fails(&verifier, (x, y_prime), &commitment, &witness);
+    }
+
+    #[test]
+    fn test_eval_batched() {
+        let (mut prover, verifier) = test_participants::<Bls12, 15>();
+        let polynomial = random_polynomial(8);
+        let commitment = prover.commit(polynomial.clone());
+
+        let mut points: Vec<(Scalar, Scalar)> = Vec::with_capacity(8);
+        for _ in 0..8 {
+            let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+            points.push((x, polynomial.eval(x)));
+        }
+
+        let witness = prover.create_witness_batched(&points).unwrap();
+        assert!(verifier.verify_eval_batched(&points, &commitment, &witness));
+
+        let mut other_points: Vec<(Scalar, Scalar)> = Vec::with_capacity(8);
+        for _ in 0..8 {
+            let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+            other_points.push((x, polynomial.eval(x)));
+        }
+
+        assert!(!verifier.verify_eval_batched(&other_points, &commitment, &witness))
     }
 }
