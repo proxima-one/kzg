@@ -56,12 +56,14 @@ pub enum KZGError {
     BatchOpeningZeroRemainder,
 }
 
+#[derive(Debug, Clone)]
 pub struct KZGProver<E: Engine, const MAX_COEFFS: usize> {
     parameters: KZGParams<E, MAX_COEFFS>,
     polynomial: Option<Polynomial<E, MAX_COEFFS>>,
     commitment: Option<KZGCommitment<E>>,
 }
 
+#[derive(Debug, Clone)]
 pub struct KZGVerifier<E: Engine, const MAX_COEFFS: usize> {
     parameters: KZGParams<E, MAX_COEFFS>,
 }
