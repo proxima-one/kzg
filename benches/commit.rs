@@ -24,7 +24,7 @@ fn bench_commit<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
         format!("bench_commit, degree {}", NUM_COEFFS - 1).as_str(),
         |b| {
             b.iter(|| {
-                let mut prover = KZGProver::new(params.clone());
+                let mut prover = KZGProver::new(&params);
                 prover.commit(black_box(black_box(polynomial.clone())))
             })
         },

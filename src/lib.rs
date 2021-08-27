@@ -57,20 +57,20 @@ pub enum KZGError {
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGProver<E: Engine, const MAX_COEFFS: usize> {
-    parameters: KZGParams<E, MAX_COEFFS>,
+pub struct KZGProver<'a, E: Engine, const MAX_COEFFS: usize> {
+    parameters: &'a KZGParams<E, MAX_COEFFS>,
     polynomial: Option<Polynomial<E, MAX_COEFFS>>,
     commitment: Option<KZGCommitment<E>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGVerifier<E: Engine, const MAX_COEFFS: usize> {
-    parameters: KZGParams<E, MAX_COEFFS>,
+pub struct KZGVerifier<'a, E: Engine, const MAX_COEFFS: usize> {
+    parameters: &'a KZGParams<E, MAX_COEFFS>,
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> KZGProver<E, MAX_COEFFS> {
+impl<'a, E: Engine, const MAX_COEFFS: usize> KZGProver<'a, E, MAX_COEFFS> {
     /// initializes `polynomial` to zero polynomial
-    pub fn new(parameters: KZGParams<E, MAX_COEFFS>) -> Self {
+    pub fn new(parameters: &'a KZGParams<E, MAX_COEFFS>) -> Self {
         Self {
             parameters,
             polynomial: None,
@@ -99,6 +99,10 @@ impl<E: Engine, const MAX_COEFFS: usize> KZGProver<E, MAX_COEFFS> {
 
     pub fn open(&self) -> Result<Polynomial<E, MAX_COEFFS>, KZGError> {
         self.polynomial.clone().ok_or(KZGError::NoPolynomial)
+    }
+
+    pub fn has_commitment(&self) -> bool {
+        self.commitment.is_some()
     }
 
     pub fn create_witness(&mut self, (x, y): (E::Fr, E::Fr)) -> Result<KZGWitness<E>, KZGError> {
@@ -178,8 +182,8 @@ impl<E: Engine, const MAX_COEFFS: usize> KZGProver<E, MAX_COEFFS> {
     }
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> KZGVerifier<E, MAX_COEFFS> {
-    pub fn new(parameters: KZGParams<E, MAX_COEFFS>) -> Self {
+impl<'a, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'a, E, MAX_COEFFS> {
+    pub fn new(parameters: &'a KZGParams<E, MAX_COEFFS>) -> Self {
         KZGVerifier { parameters }
     }
 
@@ -325,10 +329,10 @@ mod tests {
         setup(s)
     }
 
-    fn test_participants<E: Engine, const MAX_COEFFS: usize>(
-    ) -> (KZGProver<E, MAX_COEFFS>, KZGVerifier<E, MAX_COEFFS>) {
-        let params = test_setup::<E, MAX_COEFFS>();
-        let prover = KZGProver::new(params.clone());
+    fn test_participants<'a, E: Engine, const MAX_COEFFS: usize>(params: &'a KZGParams<E, MAX_COEFFS>) -> (
+        KZGProver<'a, E, MAX_COEFFS>, KZGVerifier<'a, E, MAX_COEFFS>
+    ) {
+        let prover = KZGProver::new(params);
         let verifier = KZGVerifier::new(params);
 
         (prover, verifier)
@@ -400,7 +404,8 @@ mod tests {
 
     #[test]
     fn test_basic() {
-        let (mut prover, verifier) = test_participants::<Bls12, 10>();
+        let params = test_setup::<Bls12, 10>();
+        let (mut prover, verifier) = test_participants(&params);
 
         let polynomial = random_polynomial(1);
         let commitment = prover.commit(polynomial.clone());
@@ -420,7 +425,8 @@ mod tests {
 
     #[test]
     fn test_modify_single_coeff() {
-        let (mut prover, verifier) = test_participants::<Bls12, 8>();
+        let params = test_setup::<Bls12, 8>();
+        let (mut prover, verifier) = test_participants(&params);
 
         let polynomial = random_polynomial(4);
         let commitment = prover.commit(polynomial.clone());
@@ -435,7 +441,8 @@ mod tests {
 
     #[test]
     fn test_eval_basic() {
-        let (mut prover, verifier) = test_participants::<Bls12, 13>();
+        let params = test_setup::<Bls12, 13>();
+        let (mut prover, verifier) = test_participants(&params);
 
         let polynomial = random_polynomial(5);
         let commitment = prover.commit(polynomial.clone());
@@ -452,7 +459,8 @@ mod tests {
 
     #[test]
     fn test_eval_batched() {
-        let (mut prover, verifier) = test_participants::<Bls12, 15>();
+        let params = test_setup::<Bls12, 15>();
+        let (mut prover, verifier) = test_participants(&params);
         let polynomial = random_polynomial(8);
         let commitment = prover.commit(polynomial.clone());
 

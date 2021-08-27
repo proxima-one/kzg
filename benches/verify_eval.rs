@@ -19,8 +19,8 @@ fn bench_verify_eval<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
         coeffs[i] = rng.gen::<u64>().into();
     }
     let polynomial: Polynomial<E, NUM_COEFFS> = Polynomial::new_from_coeffs(coeffs, NUM_COEFFS - 1);
-    let mut prover = KZGProver::new(params.clone());
-	let verifier = KZGVerifier::new(params);
+    let mut prover = KZGProver::new(&params);
+	let verifier = KZGVerifier::new(&params);
 	let commitment = prover.commit(polynomial.clone());
 
 	let x: E::Fr = rng.gen::<u64>().into();
