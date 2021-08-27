@@ -34,16 +34,50 @@ pub struct KZGParams<E: Engine, const MAX_COEFFS: usize> {
 pub struct KZGCommitment<E: Engine>(E::G1Affine);
 impl<E: Engine> Copy for KZGCommitment<E> {}
 
+impl<E: Engine> KZGCommitment<E> {
+    pub fn into_inner(self) -> E::G1Affine {
+        self.0
+    }
+
+    pub fn inner(&self) -> &E::G1Affine {
+        &self.0
+    }
+}
+
 // A witness for a single element - "w_i" in the paper. It's a group element.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KZGWitness<E: Engine>(E::G1Affine);
 impl<E: Engine> Copy for KZGWitness<E> {}
+
+impl<E: Engine> KZGWitness<E> {
+    pub fn into_inner(self) -> E::G1Affine {
+        self.0
+    }
+
+    pub fn inner(&self) -> &E::G1Affine {
+        &self.0
+    }
+}
 
 // A witness for a several elements - "w_B" in the paper. It's a single group element plus a polynomial
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KZGBatchWitness<E: Engine, const MAX_COEFFS: usize>{
     r: Polynomial<E, MAX_COEFFS>,
     w: E::G1Affine
+}
+
+impl<E: Engine, const MAX_COEFFS: usize> KZGBatchWitness<E, MAX_COEFFS> {
+    pub fn elem(self) -> E::G1Affine {
+        self.w
+    }
+
+    pub fn elem_ref(&self) -> &E::G1Affine {
+        &self.w
+    }
+
+    pub fn polynomial(&self) -> &Polynomial<E, MAX_COEFFS> {
+        &self.r
+    }
 }
 
 #[derive(Error, Debug)]
