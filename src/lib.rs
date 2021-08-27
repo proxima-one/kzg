@@ -139,6 +139,10 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
         self.commitment
     }
 
+    pub fn commitment_ref(&self) -> Option<&KZGCommitment<E>> {
+        self.commitment.as_ref()
+    }
+
     pub fn has_commitment(&self) -> bool {
         self.commitment.is_some()
     }
