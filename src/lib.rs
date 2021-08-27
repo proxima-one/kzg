@@ -57,20 +57,20 @@ pub enum KZGError {
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGProver<'a, E: Engine, const MAX_COEFFS: usize> {
-    parameters: &'a KZGParams<E, MAX_COEFFS>,
+pub struct KZGProver<'params, E: Engine, const MAX_COEFFS: usize> {
+    parameters: &'params KZGParams<E, MAX_COEFFS>,
     polynomial: Option<Polynomial<E, MAX_COEFFS>>,
     commitment: Option<KZGCommitment<E>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGVerifier<'a, E: Engine, const MAX_COEFFS: usize> {
-    parameters: &'a KZGParams<E, MAX_COEFFS>,
+pub struct KZGVerifier<'params, E: Engine, const MAX_COEFFS: usize> {
+    parameters: &'params KZGParams<E, MAX_COEFFS>,
 }
 
-impl<'a, E: Engine, const MAX_COEFFS: usize> KZGProver<'a, E, MAX_COEFFS> {
+impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEFFS> {
     /// initializes `polynomial` to zero polynomial
-    pub fn new(parameters: &'a KZGParams<E, MAX_COEFFS>) -> Self {
+    pub fn new(parameters: &'params KZGParams<E, MAX_COEFFS>) -> Self {
         Self {
             parameters,
             polynomial: None,
@@ -101,8 +101,20 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> KZGProver<'a, E, MAX_COEFFS> {
         self.polynomial.clone().ok_or(KZGError::NoPolynomial)
     }
 
+    pub fn commitment(&self) -> Option<KZGCommitment<E>> {
+        self.commitment
+    }
+
     pub fn has_commitment(&self) -> bool {
         self.commitment.is_some()
+    }
+
+    pub fn polynomial(&self) -> Option<&Polynomial<E, MAX_COEFFS>> {
+        self.polynomial.as_ref()
+    }
+
+    pub fn has_polynomial(&self) -> bool {
+        self.polynomial.is_some()
     }
 
     pub fn create_witness(&mut self, (x, y): (E::Fr, E::Fr)) -> Result<KZGWitness<E>, KZGError> {
@@ -182,8 +194,8 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> KZGProver<'a, E, MAX_COEFFS> {
     }
 }
 
-impl<'a, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'a, E, MAX_COEFFS> {
-    pub fn new(parameters: &'a KZGParams<E, MAX_COEFFS>) -> Self {
+impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_COEFFS> {
+    pub fn new(parameters: &'params KZGParams<E, MAX_COEFFS>) -> Self {
         KZGVerifier { parameters }
     }
 
@@ -329,8 +341,8 @@ mod tests {
         setup(s)
     }
 
-    fn test_participants<'a, E: Engine, const MAX_COEFFS: usize>(params: &'a KZGParams<E, MAX_COEFFS>) -> (
-        KZGProver<'a, E, MAX_COEFFS>, KZGVerifier<'a, E, MAX_COEFFS>
+    fn test_participants<'params, E: Engine, const MAX_COEFFS: usize>(params: &'params KZGParams<E, MAX_COEFFS>) -> (
+        KZGProver<'params, E, MAX_COEFFS>, KZGVerifier<'params, E, MAX_COEFFS>
     ) {
         let prover = KZGProver::new(params);
         let verifier = KZGVerifier::new(params);
