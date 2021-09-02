@@ -113,20 +113,13 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
     }
 
     pub fn commit(&mut self, polynomial: Polynomial<E, MAX_COEFFS>) -> KZGCommitment<E> {
-        let commitment = op_tree(
-            polynomial.num_coeffs(),
-            &|i| {
-                if i == 0 {
-                    self.parameters.g * polynomial.coeffs[i]
-                } else {
-                    self.parameters.gs[i - 1] * polynomial.coeffs[i]
-                }
-            },
-            &|a, b| a + b
-        ).to_affine();
+        let mut commitment = self.parameters.g * polynomial.coeffs[0];
+        for i in 0..polynomial.degree() {
+            commitment += self.parameters.gs[i] * polynomial.coeffs[i + 1];
+        }
 
         self.polynomial = Some(polynomial);
-        let commitment = KZGCommitment(commitment);
+        let commitment = KZGCommitment(commitment.to_affine());
         self.commitment = Some(commitment);
         commitment
     }
@@ -170,19 +163,12 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
                     // self.polynomial(point.y) != point.1
                     (_, Some(_)) => Err(KZGError::PointNotOnPolynomial),
                     (psi, None) => {
-                        let witness = op_tree(
-                            psi.num_coeffs(), 
-                            &|i| {
-                                if i == 0 {
-                                    self.parameters.g * psi.coeffs[i]
-                                } else {
-                                    self.parameters.gs[i - 1] * psi.coeffs[i]
-                                }
-                            },
-                            &|a, b| a + b
-                        ).to_affine(); 
+                        let mut w = self.parameters.g * psi.coeffs[0];
+                        for i in 0..psi.degree() {
+                            w += self.parameters.gs[i] * psi.coeffs[i + 1];
+                        }
 
-                        Ok(KZGWitness(witness))
+                        Ok(KZGWitness(w.to_affine()))
                     }
                 }
             }
@@ -213,18 +199,11 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
                 match rem {
                     Some(_) => Err(KZGError::PointNotOnPolynomial),
                     None => {
-                        let w = op_tree(
-                            psi.num_coeffs(),
-                            &|i| {
-                                if i == 0 {
-                                    self.parameters.g * psi.coeffs[i]
-                                } else {
-                                    self.parameters.gs[i - 1] * psi.coeffs[i]
-                                }
-                            },
-                            &|a, b| a + b
-                        ).to_affine();
-                        Ok(KZGBatchWitness { r: interpolation, w })
+                        let mut w = self.parameters.g * psi.coeffs[0];
+                        for i in 0..psi.degree() {
+                            w += self.parameters.gs[i] * psi.coeffs[i + 1];
+                        }
+                        Ok(KZGBatchWitness { r: interpolation, w: w.to_affine() })
                     }
                 }
             }
@@ -242,17 +221,11 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
         commitment: &KZGCommitment<E>,
         polynomial: &Polynomial<E, MAX_COEFFS>,
     ) -> bool {
-        let check = op_tree(
-            polynomial.num_coeffs(), 
-            &|i| {
-                if i == 0 {
-                    self.parameters.g * polynomial.coeffs[i]
-                } else {
-                    self.parameters.gs[i - 1] * polynomial.coeffs[i]
-                }
-            },
-            &|a, b| a + b
-        );
+
+        let mut check = self.parameters.g * polynomial.coeffs[0];
+        for i in 0..polynomial.degree() {
+            check += self.parameters.gs[i] * polynomial.coeffs[i + 1];
+        }
 
         check.to_affine() == commitment.0
     }
@@ -292,31 +265,17 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
             &|a, b| a * b
         );
 
-        let hz = op_tree(
-            z.num_coeffs(),
-            &|i| {
-                if i == 0 {
-                    self.parameters.h * z.coeffs[i]
-                } else {
-                    self.parameters.hs[i - 1] * z.coeffs[i]
-                }
-            },
-            &|a, b| a + b
-        ).to_affine();
+        let mut hz = self.parameters.h * z.coeffs[0];
+        for i in 0..z.degree() {
+            hz += self.parameters.hs[i] * z.coeffs[i + 1];
+        }
 
-        let gr = op_tree(
-            witness.r.num_coeffs(),
-            &|i| {
-                if i == 0 {
-                    self.parameters.g * witness.r.coeffs[i]
-                } else {
-                    self.parameters.gs[i - 1] * witness.r.coeffs[i]
-                }
-            },
-            &|a, b| a + b
-        );
+        let mut gr = self.parameters.g * witness.r.coeffs[0];
+        for i in 0..witness.r.degree() {
+            gr += self.parameters.gs[i] * witness.r.coeffs[i + 1];
+        }
 
-        let lhs = E::pairing(&witness.w, &hz);
+        let lhs = E::pairing(&witness.w, &hz.to_affine());
         let rhs = E::pairing(
             &(commitment.0.to_curve() - gr).to_affine(),
             &self.parameters.h
