@@ -16,13 +16,13 @@ csprng_setup = ["rand", "std"]
 std = []
 
 [dependencies]
-pairing = "0.20.0"
+pairing = "0.21.0"
 thiserror = "1.0.26"
 rand = { version = "0.8.4", optional = true }
 
 [dev-dependencies]
 rand = { version = "0.8.4", features = ["small_rng"] }
-bls12_381 = "0.5.0"
+bls12_381 = "0.6.0"
 lazy_static = "1.4.0"
 criterion = "0.3"
 
