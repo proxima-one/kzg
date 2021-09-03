@@ -112,6 +112,10 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
         }
     }
 
+    pub fn parameters(&self) -> &'params KZGParams<E, MAX_COEFFS> {
+        self.parameters
+    }
+
     pub fn commit(&mut self, polynomial: Polynomial<E, MAX_COEFFS>) -> KZGCommitment<E> {
         let mut commitment = self.parameters.g * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
