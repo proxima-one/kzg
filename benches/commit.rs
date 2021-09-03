@@ -18,7 +18,7 @@ fn bench_commit<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     for i in 0..NUM_COEFFS {
         coeffs[i] = rng.gen::<u64>().into();
     }
-    let polynomial = Polynomial::new_from_coeffs(coeffs, NUM_COEFFS - 1);
+    let polynomial = Polynomial::new(coeffs);
 
     c.bench_function(
         format!("bench_commit, degree {}", NUM_COEFFS - 1).as_str(),
