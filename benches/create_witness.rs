@@ -22,16 +22,12 @@ fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     let mut prover = KZGProver::new(&params);
     let _commitment = prover.commit(polynomial.clone());
 
-	let x: E::Fr = rng.gen::<u64>().into();
-	let y = polynomial.eval(x);
+    let x: E::Fr = rng.gen::<u64>().into();
+    let y = polynomial.eval(x);
 
     c.bench_function(
         format!("bench_create_witness, degree {}", NUM_COEFFS - 1).as_str(),
-        |b| {
-            b.iter(|| {
-                prover.create_witness(black_box((x, y))).unwrap()
-            })
-        },
+        |b| b.iter(|| prover.create_witness(black_box((x, y))).unwrap()),
     );
 }
 

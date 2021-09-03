@@ -20,18 +20,22 @@ fn bench_verify_eval<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     }
     let polynomial: Polynomial<E, NUM_COEFFS> = Polynomial::new_from_coeffs(coeffs, NUM_COEFFS - 1);
     let mut prover = KZGProver::new(&params);
-	let verifier = KZGVerifier::new(&params);
-	let commitment = prover.commit(polynomial.clone());
+    let verifier = KZGVerifier::new(&params);
+    let commitment = prover.commit(polynomial.clone());
 
-	let x: E::Fr = rng.gen::<u64>().into();
-	let y = polynomial.eval(x);
-	let witness = prover.create_witness((x, y)).unwrap();
+    let x: E::Fr = rng.gen::<u64>().into();
+    let y = polynomial.eval(x);
+    let witness = prover.create_witness((x, y)).unwrap();
 
     c.bench_function(
         format!("bench_verify_eval, degree {}", NUM_COEFFS - 1).as_str(),
         |b| {
             b.iter(|| {
-               verifier.verify_eval(black_box((x, y)), black_box(&commitment), black_box(&witness))
+                verifier.verify_eval(
+                    black_box((x, y)),
+                    black_box(&commitment),
+                    black_box(&witness),
+                )
             })
         },
     );

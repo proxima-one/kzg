@@ -11,10 +11,7 @@ use thiserror::Error;
 
 pub mod polynomial;
 
-use polynomial::{
-    Polynomial,
-    op_tree
-};
+use polynomial::{op_tree, Polynomial};
 
 /// parameters from tested setup
 #[derive(Clone, Debug)]
@@ -61,9 +58,9 @@ impl<E: Engine> KZGWitness<E> {
 
 // A witness for a several elements - "w_B" in the paper. It's a single group element plus a polynomial
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KZGBatchWitness<E: Engine, const MAX_COEFFS: usize>{
+pub struct KZGBatchWitness<E: Engine, const MAX_COEFFS: usize> {
     r: Polynomial<E, MAX_COEFFS>,
-    w: E::G1Affine
+    w: E::G1Affine,
 }
 
 impl<E: Engine, const MAX_COEFFS: usize> KZGBatchWitness<E, MAX_COEFFS> {
@@ -180,7 +177,10 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
     }
 
     // #[cfg(any(std))]
-    pub fn create_witness_batched(&mut self, points: &Vec<(E::Fr, E::Fr)>) -> Result<KZGBatchWitness<E, MAX_COEFFS>, KZGError> {
+    pub fn create_witness_batched(
+        &mut self,
+        points: &Vec<(E::Fr, E::Fr)>,
+    ) -> Result<KZGBatchWitness<E, MAX_COEFFS>, KZGError> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
@@ -192,11 +192,14 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
                         coeffs[1] = E::Fr::one();
                         Polynomial::new_from_coeffs(coeffs, 1)
                     },
-                    &|a, b| a * b
+                    &|a, b| a * b,
                 );
-                
+
                 let (xs, ys): (Vec<E::Fr>, Vec<E::Fr>) = points.iter().cloned().unzip();
-                let interpolation = Polynomial::<E, MAX_COEFFS>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+                let interpolation = Polynomial::<E, MAX_COEFFS>::lagrange_interpolation(
+                    xs.as_slice(),
+                    ys.as_slice(),
+                );
 
                 let numerator = polynomial - &interpolation;
                 let (psi, rem) = numerator.long_division(&zeros);
@@ -207,7 +210,10 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
                         for i in 0..psi.degree() {
                             w += self.parameters.gs[i] * psi.coeffs[i + 1];
                         }
-                        Ok(KZGBatchWitness { r: interpolation, w: w.to_affine() })
+                        Ok(KZGBatchWitness {
+                            r: interpolation,
+                            w: w.to_affine(),
+                        })
                     }
                 }
             }
@@ -225,7 +231,6 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
         commitment: &KZGCommitment<E>,
         polynomial: &Polynomial<E, MAX_COEFFS>,
     ) -> bool {
-
         let mut check = self.parameters.g * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
             check += self.parameters.gs[i] * polynomial.coeffs[i + 1];
@@ -256,7 +261,7 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
         &self,
         points: &Vec<(E::Fr, E::Fr)>,
         commitment: &KZGCommitment<E>,
-        witness: &KZGBatchWitness<E, MAX_COEFFS>
+        witness: &KZGBatchWitness<E, MAX_COEFFS>,
     ) -> bool {
         let z: Polynomial<E, MAX_COEFFS> = op_tree(
             points.len(),
@@ -266,7 +271,7 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
                 coeffs[1] = E::Fr::one();
                 Polynomial::new_from_coeffs(coeffs, 1)
             },
-            &|a, b| a * b
+            &|a, b| a * b,
         );
 
         let mut hz = self.parameters.h * z.coeffs[0];
@@ -282,7 +287,7 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
         let lhs = E::pairing(&witness.w, &hz.to_affine());
         let rhs = E::pairing(
             &(commitment.0.to_curve() - gr).to_affine(),
-            &self.parameters.h
+            &self.parameters.h,
         );
 
         lhs == rhs
@@ -342,8 +347,11 @@ mod tests {
         setup(s)
     }
 
-    fn test_participants<'params, E: Engine, const MAX_COEFFS: usize>(params: &'params KZGParams<E, MAX_COEFFS>) -> (
-        KZGProver<'params, E, MAX_COEFFS>, KZGVerifier<'params, E, MAX_COEFFS>
+    fn test_participants<'params, E: Engine, const MAX_COEFFS: usize>(
+        params: &'params KZGParams<E, MAX_COEFFS>,
+    ) -> (
+        KZGProver<'params, E, MAX_COEFFS>,
+        KZGVerifier<'params, E, MAX_COEFFS>,
     ) {
         let prover = KZGProver::new(params);
         let verifier = KZGVerifier::new(params);
