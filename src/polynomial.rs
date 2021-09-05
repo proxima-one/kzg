@@ -1,10 +1,7 @@
 use core::borrow::Borrow;
 use core::cmp::{Eq, PartialEq};
-use core::ops::{Add, AddAssign, Sub, SubAssign, Mul, Range};
-use pairing::{
-    group::{ff::Field},
-    Engine,
-};
+use core::ops::{Add, AddAssign, Mul, Range, Sub, SubAssign};
+use pairing::{group::ff::Field, Engine};
 use std::iter::Iterator;
 
 #[derive(Clone, Debug)]
@@ -126,10 +123,7 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
     pub fn long_division(
         &self,
         divisor: &Self,
-    ) -> (
-        Polynomial<E, MAX_COEFFS>,
-        Option<Polynomial<E, MAX_COEFFS>>,
-    ) {
+    ) -> (Polynomial<E, MAX_COEFFS>, Option<Polynomial<E, MAX_COEFFS>>) {
         if self.is_zero() {
             (Self::new_zero(), Some(self.clone()))
         } else if divisor.is_zero() {
@@ -174,10 +168,10 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
         }
         
         op_tree(
-            xs.len(), 
+            xs.len(),
             &|i| {
                 op_tree(
-                    xs.len() - 1, 
+                    xs.len() - 1,
                     &|mut j| {
                         if j >= i {
                             j += 1;
@@ -190,11 +184,12 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
                         coeffs[1] = d;
 
                         Polynomial::new_from_coeffs(coeffs, 1)
-                    }, 
-                    &|a, b| a * b
-                ).scalar_multiplication(ys[i])
-            }, 
-            &|a, b| a + b
+                    },
+                    &|a, b| a * b,
+                )
+                .scalar_multiplication(ys[i])
+            },
+            &|a, b| a + b,
         )
     }
 
@@ -209,7 +204,7 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
 fn op_tree_inner<T, F, O>(left: usize, size: usize, get_elem: &F, op: &O) -> T
 where
     F: Fn(usize) -> T,
-    O: Fn(T, T) -> T
+    O: Fn(T, T) -> T,
 {
     assert!(size > 0);
     if size == 1 {
@@ -218,14 +213,17 @@ where
         op(get_elem(left), get_elem(left + 1))
     } else {
         let mid = left + (size / 2);
-        op(op_tree_inner(left, size / 2, get_elem, op), op_tree_inner(mid, size - (size / 2), get_elem, op))
+        op(
+            op_tree_inner(left, size / 2, get_elem, op),
+            op_tree_inner(mid, size - (size / 2), get_elem, op),
+        )
     }
 }
 
 pub fn op_tree<T, F, O>(size: usize, get_elem: &F, op: &O) -> T
 where
     F: Fn(usize) -> T,
-    O: Fn(T, T) -> T
+    O: Fn(T, T) -> T,
 {
     op_tree_inner(0, size, get_elem, op)
 }
@@ -294,7 +292,9 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> Sub for &'a Polynomial<E, MAX_COEFF
     }
 }
 
-impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> SubAssign<R> for Polynomial<E, MAX_COEFFS> {
+impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> SubAssign<R>
+    for Polynomial<E, MAX_COEFFS>
+{
     fn sub_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
         for i in 0..rhs.num_coeffs() {
@@ -305,7 +305,9 @@ impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> S
     }
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> Mul<Polynomial<E, MAX_COEFFS>> for Polynomial<E, MAX_COEFFS> {
+impl<E: Engine, const MAX_COEFFS: usize> Mul<Polynomial<E, MAX_COEFFS>>
+    for Polynomial<E, MAX_COEFFS>
+{
     type Output = Polynomial<E, MAX_COEFFS>;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -428,7 +430,6 @@ mod tests {
         assert_eq!(polynomial.eval(5.into()), 3834.into());
     }
 
-
     fn do_test_sum_tree(ops: &Vec<i32>) {
         let expected = ops.iter().fold(0, |acc, curr| acc + curr);
         let got = op_tree(ops.len(), &|i| ops[i], &|a, b| a + b);
@@ -440,7 +441,6 @@ mod tests {
         let got = op_tree(ops.len(), &|i| ops[i], &|a, b| a * b);
         assert_eq!(expected, got);
     }
-        
 
     #[test]
     fn test_tree_math() {
@@ -467,9 +467,16 @@ mod tests {
 
     #[test]
     fn test_interpolation() {
-        let xs: Vec<Scalar> = vec![2, 5, 7, 90, 111, 31, 29].into_iter().map(|x| x.into()).collect();
-        let ys: Vec<Scalar> = vec![8, 1, 43, 2, 87, 122, 13].into_iter().map(|x| x.into()).collect();
-        let interpolation = Polynomial::<Bls12, 8>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+        let xs: Vec<Scalar> = vec![2, 5, 7, 90, 111, 31, 29]
+            .into_iter()
+            .map(|x| x.into())
+            .collect();
+        let ys: Vec<Scalar> = vec![8, 1, 43, 2, 87, 122, 13]
+            .into_iter()
+            .map(|x| x.into())
+            .collect();
+        let interpolation =
+            Polynomial::<Bls12, 8>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
 
         for (&x, &y) in xs.iter().zip(ys.iter()) {
             assert_eq!(interpolation.eval(x), y);
