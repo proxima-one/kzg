@@ -476,6 +476,17 @@ mod tests {
 
         let y_prime = random_field_elem_neq::<Bls12>(y);
         assert_verify_eval_fails(&verifier, (x, y_prime), &commitment, &witness);
+
+        // test degree 1 edge case
+        let mut coeffs = [Scalar::zero(); 13];
+        coeffs[0] = 3.into();
+        coeffs[1] = 1.into();
+        let polynomial = Polynomial::new(coeffs);
+
+        let commitment = prover.commit(polynomial);
+        let witness = prover.create_witness((1.into(), 4.into())).unwrap();
+        assert_verify_eval(&verifier, (1.into(), 4.into()), &commitment, &witness);
+        assert_verify_eval_fails(&verifier, (1.into(), 5.into()), &commitment, &witness);
     }
 
     #[test]

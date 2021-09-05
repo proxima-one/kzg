@@ -162,8 +162,9 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
         // handle trivial case where there's only 1 point
         if xs.len() == 1 {
             let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
-            coeffs[0] = ys[0];
-            return Polynomial::new_from_coeffs(coeffs, 0);
+            coeffs[0] = ys[0] - xs[0];
+            coeffs[1] = E::Fr::one();
+            return Polynomial::new_from_coeffs(coeffs, 1);
         }
         
         op_tree(
