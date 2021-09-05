@@ -109,12 +109,11 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
     }
 
     pub fn eval(&self, x: E::Fr) -> E::Fr {
-        let mut res = E::Fr::zero();
-        let mut term = E::Fr::one();
+        let mut res = self.coeffs[self.degree()];
 
-        for &coeff in self.iter_coeffs() {
-            res += coeff * term;
-            term *= x;
+        for i in (0..self.degree()).rev() {
+            res *= x;
+            res += self.coeffs[i];
         }
 
         res
@@ -467,6 +466,22 @@ mod tests {
 
     #[test]
     fn test_interpolation() {
+        let xs: Vec<Scalar> = vec![2]
+            .into_iter()
+            .map(|x| x.into())
+            .collect();
+        let ys: Vec<Scalar> = vec![8]
+            .into_iter()
+            .map(|x| x.into())
+            .collect();
+
+        let interpolation =
+            Polynomial::<Bls12, 8>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+
+        for (&x, &y) in xs.iter().zip(ys.iter()) {
+            assert_eq!(interpolation.eval(x), y);
+        }
+
         let xs: Vec<Scalar> = vec![2, 5, 7, 90, 111, 31, 29]
             .into_iter()
             .map(|x| x.into())

@@ -502,4 +502,5 @@ mod tests {
 
         assert!(!verifier.verify_eval_batched(&other_points, &commitment, &witness))
     }
+
 }
