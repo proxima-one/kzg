@@ -179,7 +179,7 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
     // #[cfg(any(std))]
     pub fn create_witness_batched(
         &self,
-        points: &Vec<(E::Fr, E::Fr)>,
+        points: &[(E::Fr, E::Fr)],
     ) -> Result<KZGBatchWitness<E, MAX_COEFFS>, KZGError> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
