@@ -1,7 +1,3 @@
-#[cfg(any(test, std))]
-#[macro_use]
-extern crate std;
-
 use core::fmt::Debug;
 use pairing::{
     group::{ff::Field, prime::PrimeCurveAffine, Curve},
@@ -15,15 +11,15 @@ use polynomial::{op_tree, Polynomial};
 
 /// parameters from tested setup
 #[derive(Clone, Debug)]
-pub struct KZGParams<E: Engine, const MAX_COEFFS: usize> {
+pub struct KZGParams<E: Engine> {
     /// generator of g
     g: E::G1Affine,
     /// generator of G2
     h: E::G2Affine,
     /// g^alpha^1, g^alpha^2, ...
-    gs: [E::G1Affine; MAX_COEFFS],
+    gs: Vec<E::G1Affine>,
     /// g^alpha^1, g^alpha^2, ...
-    hs: [E::G2Affine; MAX_COEFFS],
+    hs: Vec<E::G2Affine>,
 }
 
 // the commitment - "C" in the paper. It's a single group element
@@ -58,12 +54,12 @@ impl<E: Engine> KZGWitness<E> {
 
 // A witness for a several elements - "w_B" in the paper. It's a single group element plus a polynomial
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KZGBatchWitness<E: Engine, const MAX_COEFFS: usize> {
-    r: Polynomial<E, MAX_COEFFS>,
+pub struct KZGBatchWitness<E: Engine> {
+    r: Polynomial<E>,
     w: E::G1Affine,
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> KZGBatchWitness<E, MAX_COEFFS> {
+impl<E: Engine> KZGBatchWitness<E> {
     pub fn elem(self) -> E::G1Affine {
         self.w
     }
@@ -72,7 +68,7 @@ impl<E: Engine, const MAX_COEFFS: usize> KZGBatchWitness<E, MAX_COEFFS> {
         &self.w
     }
 
-    pub fn polynomial(&self) -> &Polynomial<E, MAX_COEFFS> {
+    pub fn polynomial(&self) -> &Polynomial<E> {
         &self.r
     }
 }
@@ -88,20 +84,20 @@ pub enum KZGError {
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGProver<'params, E: Engine, const MAX_COEFFS: usize> {
-    parameters: &'params KZGParams<E, MAX_COEFFS>,
-    polynomial: Option<Polynomial<E, MAX_COEFFS>>,
+pub struct KZGProver<'params, E: Engine> {
+    parameters: &'params KZGParams<E>,
+    polynomial: Option<Polynomial<E>>,
     commitment: Option<KZGCommitment<E>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGVerifier<'params, E: Engine, const MAX_COEFFS: usize> {
-    parameters: &'params KZGParams<E, MAX_COEFFS>,
+pub struct KZGVerifier<'params, E: Engine> {
+    parameters: &'params KZGParams<E>,
 }
 
-impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEFFS> {
+impl<'params, E: Engine> KZGProver<'params, E> {
     /// initializes `polynomial` to zero polynomial
-    pub fn new(parameters: &'params KZGParams<E, MAX_COEFFS>) -> Self {
+    pub fn new(parameters: &'params KZGParams<E>) -> Self {
         Self {
             parameters,
             polynomial: None,
@@ -109,11 +105,11 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
         }
     }
 
-    pub fn parameters(&self) -> &'params KZGParams<E, MAX_COEFFS> {
+    pub fn parameters(&self) -> &'params KZGParams<E> {
         self.parameters
     }
 
-    pub fn commit(&mut self, polynomial: Polynomial<E, MAX_COEFFS>) -> KZGCommitment<E> {
+    pub fn commit(&mut self, polynomial: Polynomial<E>) -> KZGCommitment<E> {
         let mut commitment = self.parameters.g * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
             commitment += self.parameters.gs[i] * polynomial.coeffs[i + 1];
@@ -125,7 +121,7 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
         commitment
     }
 
-    pub fn open(&self) -> Result<Polynomial<E, MAX_COEFFS>, KZGError> {
+    pub fn open(&self) -> Result<Polynomial<E>, KZGError> {
         self.polynomial.clone().ok_or(KZGError::NoPolynomial)
     }
 
@@ -141,7 +137,7 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
         self.commitment.is_some()
     }
 
-    pub fn polynomial(&self) -> Option<&Polynomial<E, MAX_COEFFS>> {
+    pub fn polynomial(&self) -> Option<&Polynomial<E>> {
         self.polynomial.as_ref()
     }
 
@@ -156,9 +152,7 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
                 let mut dividend = polynomial.clone();
                 dividend.coeffs[0] -= y;
 
-                let mut divisor = Polynomial::new_from_coeffs([E::Fr::zero(); MAX_COEFFS], 1);
-                divisor.coeffs[0] = -x;
-                divisor.coeffs[1] = E::Fr::one();
+                let mut divisor = Polynomial::new_from_coeffs(vec![-x, E::Fr::one()], 1);
                 match dividend.long_division(&divisor) {
                     // by polynomial remainder theorem, if (x - point.x) does not divide self.polynomial, then
                     // self.polynomial(point.y) != point.1
@@ -180,23 +174,21 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
     pub fn create_witness_batched(
         &self,
         points: &[(E::Fr, E::Fr)],
-    ) -> Result<KZGBatchWitness<E, MAX_COEFFS>, KZGError> {
+    ) -> Result<KZGBatchWitness<E>, KZGError> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
-                let zeros: Polynomial<E, MAX_COEFFS> = op_tree(
+                let zeros: Polynomial<E> = op_tree(
                     points.len(),
                     &|i| {
-                        let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
-                        coeffs[0] = -points[i].0;
-                        coeffs[1] = E::Fr::one();
+                        let mut coeffs = vec![-points[i].0, E::Fr::one()];
                         Polynomial::new_from_coeffs(coeffs, 1)
                     },
                     &|a, b| a * b,
                 );
 
                 let (xs, ys): (Vec<E::Fr>, Vec<E::Fr>) = points.iter().cloned().unzip();
-                let interpolation = Polynomial::<E, MAX_COEFFS>::lagrange_interpolation(
+                let interpolation = Polynomial::<E>::lagrange_interpolation(
                     xs.as_slice(),
                     ys.as_slice(),
                 );
@@ -221,15 +213,15 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGProver<'params, E, MAX_COEF
     }
 }
 
-impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_COEFFS> {
-    pub fn new(parameters: &'params KZGParams<E, MAX_COEFFS>) -> Self {
+impl<'params, E: Engine> KZGVerifier<'params, E> {
+    pub fn new(parameters: &'params KZGParams<E>) -> Self {
         KZGVerifier { parameters }
     }
 
     pub fn verify_poly(
         &self,
         commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E, MAX_COEFFS>,
+        polynomial: &Polynomial<E>,
     ) -> bool {
         let mut check = self.parameters.g * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
@@ -261,12 +253,12 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
         &self,
         points: &[(E::Fr, E::Fr)],
         commitment: &KZGCommitment<E>,
-        witness: &KZGBatchWitness<E, MAX_COEFFS>,
+        witness: &KZGBatchWitness<E>,
     ) -> bool {
-        let z: Polynomial<E, MAX_COEFFS> = op_tree(
+        let z: Polynomial<E> = op_tree(
             points.len(),
             &|i| {
-                let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
+                let mut coeffs = vec![-points[i].0, E::Fr::one()];
                 coeffs[0] = -points[i].0;
                 coeffs[1] = E::Fr::one();
                 Polynomial::new_from_coeffs(coeffs, 1)
@@ -294,12 +286,12 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
     }
 }
 
-pub fn setup<E: Engine, const MAX_COEFFS: usize>(s: E::Fr) -> KZGParams<E, MAX_COEFFS> {
+pub fn setup<E: Engine>(s: E::Fr, num_coeffs: usize) -> KZGParams<E> {
     let g = E::G1Affine::generator();
     let h = E::G2Affine::generator();
 
-    let mut gs = [g; MAX_COEFFS];
-    let mut hs = [h; MAX_COEFFS];
+    let mut gs = vec![g; num_coeffs];
+    let mut hs = vec![h; num_coeffs];
 
     let mut curr = g;
 
@@ -321,9 +313,9 @@ pub fn setup<E: Engine, const MAX_COEFFS: usize>(s: E::Fr) -> KZGParams<E, MAX_C
 use rand::random;
 
 #[cfg(any(csprng_setup, test))]
-pub fn csprng_setup<E: Engine, const MAX_COEFFS: usize>() -> KZGParams<E, MAX_COEFFS> {
+pub fn csprng_setup<E: Engine>(num_coeffs: usize) -> KZGParams<E> {
     let s: E::Fr = random::<u64>().into();
-    setup(s)
+    setup(s, num_coeffs)
 }
 
 #[cfg(test)]
@@ -342,16 +334,16 @@ mod tests {
         static ref RNG_1: Mutex<SmallRng> = Mutex::new(SmallRng::from_seed(RNG_SEED_1));
     }
 
-    fn test_setup<E: Engine, const MAX_COEFFS: usize>() -> KZGParams<E, MAX_COEFFS> {
+    fn test_setup<E: Engine, const MAX_COEFFS: usize>() -> KZGParams<E> {
         let s: E::Fr = RNG_0.lock().unwrap().gen::<u64>().into();
-        setup(s)
+        setup(s, MAX_COEFFS)
     }
 
-    fn test_participants<'params, E: Engine, const MAX_COEFFS: usize>(
-        params: &'params KZGParams<E, MAX_COEFFS>,
+    fn test_participants<'params, E: Engine>(
+        params: &'params KZGParams<E>,
     ) -> (
-        KZGProver<'params, E, MAX_COEFFS>,
-        KZGVerifier<'params, E, MAX_COEFFS>,
+        KZGProver<'params, E>,
+        KZGVerifier<'params, E>,
     ) {
         let prover = KZGProver::new(params);
         let verifier = KZGVerifier::new(params);
@@ -360,23 +352,26 @@ mod tests {
     }
 
     // never returns zero polynomial
-    fn random_polynomial<E: Engine, const MAX_COEFFS: usize>(
+    fn random_polynomial<E: Engine>(
         min_coeffs: usize,
-    ) -> Polynomial<E, MAX_COEFFS> {
-        let num_coeffs = RNG_1.lock().unwrap().gen_range(min_coeffs..MAX_COEFFS);
-        let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
+        max_coeffs: usize
+    ) -> Polynomial<E> {
+        let num_coeffs = RNG_1.lock().unwrap().gen_range(min_coeffs..max_coeffs);
+        let mut coeffs = vec![E::Fr::zero(); max_coeffs];
 
         for i in 0..num_coeffs {
             coeffs[i] = RNG_1.lock().unwrap().gen::<u64>().into();
         }
 
-        Polynomial::new_from_coeffs(coeffs, num_coeffs - 1)
+        let mut poly = Polynomial::new_from_coeffs(coeffs, num_coeffs - 1);
+        poly.shrink_degree();
+        poly
     }
 
-    fn assert_verify_poly<E: Engine + Debug, const MAX_COEFFS: usize>(
-        verifier: &KZGVerifier<E, MAX_COEFFS>,
+    fn assert_verify_poly<E: Engine + Debug>(
+        verifier: &KZGVerifier<E>,
         commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E, MAX_COEFFS>,
+        polynomial: &Polynomial<E>,
     ) {
         assert!(
             verifier.verify_poly(&commitment, &polynomial),
@@ -386,10 +381,10 @@ mod tests {
         );
     }
 
-    fn assert_verify_poly_fails<E: Engine + Debug, const MAX_COEFFS: usize>(
-        verifier: &KZGVerifier<E, MAX_COEFFS>,
+    fn assert_verify_poly_fails<E: Engine + Debug>(
+        verifier: &KZGVerifier<E>,
         commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E, MAX_COEFFS>,
+        polynomial: &Polynomial<E>,
     ) {
         assert!(
             !verifier.verify_poly(&commitment, &polynomial),
@@ -399,8 +394,8 @@ mod tests {
         );
     }
 
-    fn assert_verify_eval<E: Engine + Debug, const MAX_COEFFS: usize>(
-        verifier: &KZGVerifier<E, MAX_COEFFS>,
+    fn assert_verify_eval<E: Engine + Debug>(
+        verifier: &KZGVerifier<E>,
         point: (E::Fr, E::Fr),
         commitment: &KZGCommitment<E>,
         witness: &KZGWitness<E>,
@@ -414,8 +409,8 @@ mod tests {
         );
     }
 
-    fn assert_verify_eval_fails<E: Engine + Debug, const MAX_COEFFS: usize>(
-        verifier: &KZGVerifier<E, MAX_COEFFS>,
+    fn assert_verify_eval_fails<E: Engine + Debug>(
+        verifier: &KZGVerifier<E>,
         point: (E::Fr, E::Fr),
         commitment: &KZGCommitment<E>,
         witness: &KZGWitness<E>,
@@ -428,11 +423,11 @@ mod tests {
         let params = test_setup::<Bls12, 10>();
         let (mut prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(1);
+        let polynomial = random_polynomial(1, 10);
         let commitment = prover.commit(polynomial.clone());
 
         assert_verify_poly(&verifier, &commitment, &polynomial);
-        assert_verify_poly_fails(&verifier, &commitment, &random_polynomial(1));
+        assert_verify_poly_fails(&verifier, &commitment, &random_polynomial(1, 10));
     }
 
     fn random_field_elem_neq<E: Engine>(val: E::Fr) -> E::Fr {
@@ -449,7 +444,7 @@ mod tests {
         let params = test_setup::<Bls12, 8>();
         let (mut prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(4);
+        let polynomial = random_polynomial(4, 8);
         let commitment = prover.commit(polynomial.clone());
 
         let mut modified_polynomial = polynomial.clone();
@@ -465,7 +460,7 @@ mod tests {
         let params = test_setup::<Bls12, 13>();
         let (mut prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(5);
+        let polynomial = random_polynomial(5, 13);
         let commitment = prover.commit(polynomial.clone());
 
         let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
@@ -478,7 +473,7 @@ mod tests {
         assert_verify_eval_fails(&verifier, (x, y_prime), &commitment, &witness);
 
         // test degree 1 edge case
-        let mut coeffs = [Scalar::zero(); 13];
+        let mut coeffs = vec![Scalar::zero(); 13];
         coeffs[0] = 3.into();
         coeffs[1] = 1.into();
         let polynomial = Polynomial::new(coeffs);
@@ -493,7 +488,7 @@ mod tests {
     fn test_eval_batched() {
         let params = test_setup::<Bls12, 15>();
         let (mut prover, verifier) = test_participants(&params);
-        let polynomial = random_polynomial(8);
+        let polynomial = random_polynomial(8, 15);
         let commitment = prover.commit(polynomial.clone());
 
         let mut points: Vec<(Scalar, Scalar)> = Vec::with_capacity(8);

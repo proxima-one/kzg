@@ -5,13 +5,13 @@ use pairing::{group::ff::Field, Engine};
 use std::iter::Iterator;
 
 #[derive(Clone, Debug)]
-pub struct Polynomial<E: Engine, const MAX_COEFFS: usize> {
+pub struct Polynomial<E: Engine> {
     pub degree: usize,
-    pub coeffs: [E::Fr; MAX_COEFFS],
+    pub coeffs: Vec<E::Fr>,
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> PartialEq<Polynomial<E, MAX_COEFFS>>
-    for Polynomial<E, MAX_COEFFS>
+impl<E: Engine> PartialEq<Polynomial<E>>
+    for Polynomial<E>
 {
     fn eq(&self, other: &Self) -> bool {
         if self.degree() != other.degree() {
@@ -25,47 +25,54 @@ impl<E: Engine, const MAX_COEFFS: usize> PartialEq<Polynomial<E, MAX_COEFFS>>
     }
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> Eq for Polynomial<E, MAX_COEFFS> {}
+impl<E: Engine> Eq for Polynomial<E> {}
 
-pub struct PolynomialSlice<'a, E: Engine, const MAX_COEFFS: usize> {
+pub struct PolynomialSlice<'a, E: Engine> {
     pub degree: usize,
     pub coeffs: &'a [E::Fr],
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
+impl<E: Engine> Polynomial<E> {
     pub fn is_zero(&self) -> bool {
         self.degree() == 0 && self.coeffs[0] == E::Fr::zero()
     }
 
-    pub fn new_zero() -> Polynomial<E, MAX_COEFFS> {
+    pub fn new_zero() -> Polynomial<E> {
         Polynomial {
             degree: 0,
-            coeffs: [E::Fr::zero(); MAX_COEFFS],
+            coeffs: vec![E::Fr::zero()],
         }
     }
 
-    pub fn new(coeffs: [E::Fr; MAX_COEFFS]) -> Polynomial<E, MAX_COEFFS> {
+    pub fn new_zero_with_size(cap: usize) -> Polynomial<E> {
+        Polynomial {
+            degree: 0,
+            coeffs: vec![E::Fr::zero(); cap]
+        }
+    }
+
+    pub fn new(coeffs: Vec<E::Fr>) -> Polynomial<E> {
         // figure out what the initial degree is
-        let degree = Self::compute_degree(&coeffs, MAX_COEFFS - 1);
+        let degree = Self::compute_degree(&coeffs, coeffs.len() - 1);
         Polynomial { degree, coeffs }
     }
 
     /// note: use this carefully, as setting the degree incorrect can lead to the degree being inconsistent
     pub fn new_from_coeffs(
-        coeffs: [E::Fr; MAX_COEFFS],
+        coeffs: Vec<E::Fr>,
         degree: usize,
-    ) -> Polynomial<E, MAX_COEFFS> {
+    ) -> Polynomial<E> {
         Polynomial { degree, coeffs }
     }
 
-    pub fn slice(&self, range: Range<usize>) -> PolynomialSlice<E, MAX_COEFFS> {
+    pub fn slice(&self, range: Range<usize>) -> PolynomialSlice<E> {
         PolynomialSlice {
             degree: Self::compute_degree(&self.coeffs, range.len()),
             coeffs: &self.coeffs[range],
         }
     }
 
-    pub fn compute_degree(coeffs: &[E::Fr], upper_bound: usize) -> usize {
+    pub fn compute_degree(coeffs: &Vec<E::Fr>, upper_bound: usize) -> usize {
         let mut i = upper_bound;
         loop {
             if i == 0 {
@@ -84,7 +91,7 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
     }
 
     pub fn fixup_degree(&mut self) {
-        let degree = Self::compute_degree(&self.coeffs, MAX_COEFFS - 1);
+        let degree = Self::compute_degree(&self.coeffs, self.coeffs.len() - 1);
         self.degree = degree;
     }
 
@@ -122,7 +129,7 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
     pub fn long_division(
         &self,
         divisor: &Self,
-    ) -> (Polynomial<E, MAX_COEFFS>, Option<Polynomial<E, MAX_COEFFS>>) {
+    ) -> (Polynomial<E>, Option<Polynomial<E>>) {
         if self.is_zero() {
             (Self::new_zero(), Some(self.clone()))
         } else if divisor.is_zero() {
@@ -130,7 +137,7 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
         } else {
             let mut remainder = self.clone();
             let mut quotient = Polynomial::new_from_coeffs(
-                [E::Fr::zero(); MAX_COEFFS],
+                vec![E::Fr::zero(); self.degree() - divisor.degree() + 1],
                 self.degree() - divisor.degree(),
             );
 
@@ -156,14 +163,12 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
         }
     }
 
-    pub fn lagrange_interpolation(xs: &[E::Fr], ys: &[E::Fr]) -> Polynomial<E, MAX_COEFFS> {
+    pub fn lagrange_interpolation(xs: &[E::Fr], ys: &[E::Fr]) -> Polynomial<E> {
         assert_eq!(xs.len(), ys.len());
 
         // handle trivial case where there's only 1 point
         if xs.len() == 1 {
-            let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
-            coeffs[0] = ys[0] - xs[0];
-            coeffs[1] = E::Fr::one();
+            let mut coeffs = vec![ys[0] - xs[0], E::Fr::one()];
             return Polynomial::new_from_coeffs(coeffs, 1);
         }
         
@@ -177,11 +182,12 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
                             j += 1;
                         }
 
-                        let mut coeffs = [E::Fr::zero(); MAX_COEFFS];
                         let d = xs[i] - xs[j];
                         let d = d.invert().unwrap();
-                        coeffs[0] = -xs[j] * d;
-                        coeffs[1] = d;
+                        let mut coeffs = vec![
+                            -xs[j] * d,
+                            d
+                        ];
 
                         Polynomial::new_from_coeffs(coeffs, 1)
                     },
@@ -193,7 +199,7 @@ impl<E: Engine, const MAX_COEFFS: usize> Polynomial<E, MAX_COEFFS> {
         )
     }
 
-    pub fn scalar_multiplication(mut self, rhs: E::Fr) -> Polynomial<E, MAX_COEFFS> {
+    pub fn scalar_multiplication(mut self, rhs: E::Fr) -> Polynomial<E> {
         for i in 0..self.num_coeffs() {
             self.coeffs[i] *= rhs;
         }
@@ -228,8 +234,8 @@ where
     op_tree_inner(0, size, get_elem, op)
 }
 
-impl<'a, E: Engine, const MAX_COEFFS: usize> Add for &'a Polynomial<E, MAX_COEFFS> {
-    type Output = Polynomial<E, MAX_COEFFS>;
+impl<'a, E: Engine> Add for &'a Polynomial<E> {
+    type Output = Polynomial<E>;
 
     fn add(self, rhs: Self) -> Self::Output {
         let (mut res, shorter) = if rhs.degree() > self.degree {
@@ -246,8 +252,8 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> Add for &'a Polynomial<E, MAX_COEFF
     }
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> Add for Polynomial<E, MAX_COEFFS> {
-    type Output = Polynomial<E, MAX_COEFFS>;
+impl<E: Engine> Add for Polynomial<E> {
+    type Output = Polynomial<E>;
 
     fn add(self, rhs: Self) -> Self::Output {
         let (mut res, shorter) = if rhs.degree() > self.degree() {
@@ -264,8 +270,8 @@ impl<E: Engine, const MAX_COEFFS: usize> Add for Polynomial<E, MAX_COEFFS> {
     }
 }
 
-impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> AddAssign<R>
-    for Polynomial<E, MAX_COEFFS>
+impl<E: Engine, R: Borrow<Polynomial<E>>> AddAssign<R>
+    for Polynomial<E>
 {
     fn add_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
@@ -279,8 +285,8 @@ impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> A
     }
 }
 
-impl<'a, E: Engine, const MAX_COEFFS: usize> Sub for &'a Polynomial<E, MAX_COEFFS> {
-    type Output = Polynomial<E, MAX_COEFFS>;
+impl<'a, E: Engine> Sub for &'a Polynomial<E> {
+    type Output = Polynomial<E>;
 
     fn sub(self, rhs: Self) -> Self::Output {
         let mut res = self.clone();
@@ -293,8 +299,8 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> Sub for &'a Polynomial<E, MAX_COEFF
     }
 }
 
-impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> SubAssign<R>
-    for Polynomial<E, MAX_COEFFS>
+impl<E: Engine, R: Borrow<Polynomial<E>>> SubAssign<R>
+    for Polynomial<E>
 {
     fn sub_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
@@ -306,13 +312,13 @@ impl<E: Engine, R: Borrow<Polynomial<E, MAX_COEFFS>>, const MAX_COEFFS: usize> S
     }
 }
 
-impl<E: Engine, const MAX_COEFFS: usize> Mul<Polynomial<E, MAX_COEFFS>>
-    for Polynomial<E, MAX_COEFFS>
+impl<E: Engine> Mul<Polynomial<E>>
+    for Polynomial<E>
 {
-    type Output = Polynomial<E, MAX_COEFFS>;
+    type Output = Polynomial<E>;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        let mut res = Polynomial::new_zero();
+        let mut res = Polynomial::new_zero_with_size(self.degree() + rhs.degree() + 1);
         for i in 0..self.num_coeffs() {
             for j in 0..rhs.num_coeffs() {
                 res.coeffs[i + j] += self.coeffs[i] * rhs.coeffs[j];
@@ -334,14 +340,14 @@ mod tests {
         // test cases taken from https://tutorial.math.lamar.edu/Solutions/Alg/DividingPolynomials
 
         // 3x^4 - 5x^2 + 3 / x + 2 = 3x^3 - 6x^2 + 7x - 14 r 31
-        let x: Polynomial<Bls12, 5> = Polynomial::new([
+        let x: Polynomial<Bls12> = Polynomial::new(vec![
             3.into(),
             Scalar::zero(),
             -Scalar::from(5),
             Scalar::zero(),
             3.into(),
         ]);
-        let y: Polynomial<Bls12, 5> = Polynomial::new([
+        let y: Polynomial<Bls12> = Polynomial::new(vec![
             2.into(),
             Scalar::one(),
             Scalar::zero(),
@@ -353,7 +359,7 @@ mod tests {
         assert!(r.is_some());
         assert_eq!(
             r.unwrap(),
-            Polynomial::new([
+            Polynomial::new(vec![
                 31.into(),
                 Scalar::zero(),
                 Scalar::zero(),
@@ -363,7 +369,7 @@ mod tests {
         );
         assert_eq!(
             q,
-            Polynomial::new([
+            Polynomial::new(vec![
                 -Scalar::from(14),
                 7.into(),
                 -Scalar::from(6),
@@ -373,9 +379,9 @@ mod tests {
         );
 
         // x^3 + 2x^2 - 3x + 4 / x - 7 = x^2 + 9x + 60 r 424
-        let x: Polynomial<Bls12, 4> =
-            Polynomial::new([4.into(), -Scalar::from(3), 2.into(), Scalar::one()]);
-        let y: Polynomial<Bls12, 4> = Polynomial::new([
+        let x: Polynomial<Bls12> =
+            Polynomial::new(vec![4.into(), -Scalar::from(3), 2.into(), Scalar::one()]);
+        let y: Polynomial<Bls12> = Polynomial::new(vec![
             -Scalar::from(7),
             Scalar::one(),
             Scalar::zero(),
@@ -386,17 +392,17 @@ mod tests {
         assert!(r.is_some());
         assert_eq!(
             r.unwrap(),
-            Polynomial::new([424.into(), Scalar::zero(), Scalar::zero(), Scalar::zero(),])
+            Polynomial::new(vec![424.into(), Scalar::zero(), Scalar::zero(), Scalar::zero(),])
         );
         assert_eq!(
             q,
-            Polynomial::new([60.into(), 9.into(), Scalar::one(), Scalar::zero(),])
+            Polynomial::new(vec![60.into(), 9.into(), Scalar::one(), Scalar::zero(),])
         );
 
         // x^3 + 6x^2 + 13x + 10 / x + 2 = x^2 + 4x + 5 r 0
-        let x: Polynomial<Bls12, 4> =
-            Polynomial::new([10.into(), 13.into(), 6.into(), Scalar::one()]);
-        let y: Polynomial<Bls12, 4> = Polynomial::new([
+        let x: Polynomial<Bls12> =
+            Polynomial::new(vec![10.into(), 13.into(), 6.into(), Scalar::one()]);
+        let y: Polynomial<Bls12> = Polynomial::new(vec![
             Scalar::from(2),
             Scalar::one(),
             Scalar::zero(),
@@ -407,14 +413,14 @@ mod tests {
         assert!(r.is_none());
         assert_eq!(
             q,
-            Polynomial::new([5.into(), 4.into(), Scalar::one(), Scalar::zero(),])
+            Polynomial::new(vec![5.into(), 4.into(), Scalar::one(), Scalar::zero(),])
         );
     }
 
     #[test]
     fn test_eval_basic() {
         // y(x) = x^5 + 4x^3 + 7x^2 + 34
-        let polynomial: Polynomial<Bls12, 6> = Polynomial::new([
+        let polynomial: Polynomial<Bls12> = Polynomial::new(vec![
             34.into(),
             Scalar::zero(),
             7.into(),
@@ -478,7 +484,7 @@ mod tests {
             .collect();
 
         let interpolation =
-            Polynomial::<Bls12, 8>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+            Polynomial::<Bls12>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
 
         for (&x, &y) in xs.iter().zip(ys.iter()) {
             assert_eq!(interpolation.eval(x), y);
@@ -493,7 +499,7 @@ mod tests {
             .map(|x| x.into())
             .collect();
         let interpolation =
-            Polynomial::<Bls12, 8>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+            Polynomial::<Bls12>::lagrange_interpolation(xs.as_slice(), ys.as_slice());
 
         for (&x, &y) in xs.iter().zip(ys.iter()) {
             assert_eq!(interpolation.eval(x), y);

@@ -6,19 +6,19 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-pub fn csprng_setup<E: Engine, const MAX_COEFFS: usize>() -> KZGParams<E, MAX_COEFFS> {
+pub fn csprng_setup<E: Engine, const MAX_COEFFS: usize>() -> KZGParams<E> {
     let s: E::Fr = rand::random::<u64>().into();
-    setup(s)
+    setup(s, MAX_COEFFS)
 }
 
 fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     let params = csprng_setup::<E, NUM_COEFFS>();
     let mut rng = SmallRng::from_seed([42; 32]);
-    let mut coeffs = [E::Fr::zero(); NUM_COEFFS];
+    let mut coeffs = vec![E::Fr::zero(); NUM_COEFFS];
     for i in 0..NUM_COEFFS {
         coeffs[i] = rng.gen::<u64>().into();
     }
-    let polynomial: Polynomial<E, NUM_COEFFS> = Polynomial::new_from_coeffs(coeffs, NUM_COEFFS - 1);
+    let polynomial: Polynomial<E> = Polynomial::new_from_coeffs(coeffs, NUM_COEFFS - 1);
     let mut prover = KZGProver::new(&params);
     let _commitment = prover.commit(polynomial.clone());
 
