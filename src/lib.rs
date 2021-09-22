@@ -259,7 +259,7 @@ impl<'params, E: Engine, const MAX_COEFFS: usize> KZGVerifier<'params, E, MAX_CO
 
     pub fn verify_eval_batched(
         &self,
-        points: &Vec<(E::Fr, E::Fr)>,
+        points: &[(E::Fr, E::Fr)],
         commitment: &KZGCommitment<E>,
         witness: &KZGBatchWitness<E, MAX_COEFFS>,
     ) -> bool {
@@ -502,8 +502,8 @@ mod tests {
             points.push((x, polynomial.eval(x)));
         }
 
-        let witness = prover.create_witness_batched(&points).unwrap();
-        assert!(verifier.verify_eval_batched(&points, &commitment, &witness));
+        let witness = prover.create_witness_batched(points.as_slice()).unwrap();
+        assert!(verifier.verify_eval_batched(points.as_slice(), &commitment, &witness));
 
         let mut other_points: Vec<(Scalar, Scalar)> = Vec::with_capacity(8);
         for _ in 0..8 {
