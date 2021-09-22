@@ -288,6 +288,7 @@ impl<'a, E: Engine, const MAX_COEFFS: usize> Sub for &'a Polynomial<E, MAX_COEFF
             res.coeffs[i] -= rhs.coeffs[i];
         }
 
+        res.shrink_degree();
         res
     }
 }
