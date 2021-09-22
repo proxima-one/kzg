@@ -1,6 +1,6 @@
 [package]
 name = "kzg"
-version = "0.1.13"
+version = "0.2.0"
 edition = "2018"
 license = "MIT"
 description = "a simple implementation of the KZG polynomial commitment scheme"
@@ -11,9 +11,7 @@ readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = []
-csprng_setup = ["rand", "std"]
-std = []
+csprng_setup = ["rand"]
 
 [dependencies]
 pairing = "0.21.0"
