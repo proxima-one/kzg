@@ -509,4 +509,22 @@ mod tests {
         assert!(!verifier.verify_eval_batched(&other_points, &commitment, &witness))
     }
 
+
+    #[test]
+    fn test_eval_batched_all_points() {
+        let params = test_setup::<Bls12, 15>();
+        let (mut prover, verifier) = test_participants(&params);
+        let polynomial = random_polynomial(8, 15);
+        let commitment = prover.commit(polynomial.clone());
+
+        let mut points: Vec<(Scalar, Scalar)> = Vec::with_capacity(polynomial.num_coeffs());
+        for _ in 0..polynomial.num_coeffs() {
+            let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+            points.push((x, polynomial.eval(x)));
+        }
+
+        let witness = prover.create_witness_batched(points.as_slice()).unwrap();
+        assert!(verifier.verify_eval_batched(points.as_slice(), &commitment, &witness));
+    }
+
 }

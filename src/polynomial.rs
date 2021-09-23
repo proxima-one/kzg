@@ -131,7 +131,7 @@ impl<E: Engine> Polynomial<E> {
         divisor: &Self,
     ) -> (Polynomial<E>, Option<Polynomial<E>>) {
         if self.is_zero() {
-            (Self::new_zero(), Some(self.clone()))
+            (Self::new_zero(), None)
         } else if divisor.is_zero() {
             panic!("divisor must not be zero!")
         } else {
