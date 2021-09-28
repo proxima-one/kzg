@@ -170,8 +170,6 @@ impl<S: PrimeField> Polynomial<S> {
     }
 
     pub fn lagrange_interpolation(xs: &[S], ys: &[S]) -> Polynomial<S> {
-        let worker = Worker::new();
-
         assert_eq!(xs.len(), ys.len());
 
         // handle trivial case where there's only 1 point
@@ -196,7 +194,7 @@ impl<S: PrimeField> Polynomial<S> {
 
                         Polynomial::new_from_coeffs(coeffs, 1)
                     },
-                    &|a, b| a.fft_mul(b, &worker),
+                    &|a, b| a * b,
                 )
                 .scalar_multiplication(ys[i])
             },
