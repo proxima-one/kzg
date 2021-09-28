@@ -5,7 +5,9 @@ use pairing::{
 };
 use thiserror::Error;
 
+pub mod worker;
 pub mod polynomial;
+pub mod ft;
 
 use polynomial::{op_tree, Polynomial};
 
@@ -55,7 +57,7 @@ impl<E: Engine> KZGWitness<E> {
 // A witness for a several elements - "w_B" in the paper. It's a single group element plus a polynomial
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KZGBatchWitness<E: Engine> {
-    r: Polynomial<E>,
+    r: Polynomial<E::Fr>,
     w: E::G1Affine,
 }
 
@@ -68,7 +70,7 @@ impl<E: Engine> KZGBatchWitness<E> {
         &self.w
     }
 
-    pub fn polynomial(&self) -> &Polynomial<E> {
+    pub fn polynomial(&self) -> &Polynomial<E::Fr> {
         &self.r
     }
 }
@@ -81,12 +83,14 @@ pub enum KZGError {
     PointNotOnPolynomial,
     #[error("batch opening remainder is zero!")]
     BatchOpeningZeroRemainder,
+    #[error("polynomial degree too large")]
+    PolynomialDegreeTooLarge,
 }
 
 #[derive(Debug, Clone)]
 pub struct KZGProver<'params, E: Engine> {
     parameters: &'params KZGParams<E>,
-    polynomial: Option<Polynomial<E>>,
+    polynomial: Option<Polynomial<E::Fr>>,
     commitment: Option<KZGCommitment<E>>,
 }
 
@@ -109,7 +113,7 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         self.parameters
     }
 
-    pub fn commit(&mut self, polynomial: Polynomial<E>) -> KZGCommitment<E> {
+    pub fn commit(&mut self, polynomial: Polynomial<E::Fr>) -> KZGCommitment<E> {
         let mut commitment = self.parameters.g * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
             commitment += self.parameters.gs[i] * polynomial.coeffs[i + 1];
@@ -121,7 +125,7 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         commitment
     }
 
-    pub fn open(&self) -> Result<Polynomial<E>, KZGError> {
+    pub fn open(&self) -> Result<Polynomial<E::Fr>, KZGError> {
         self.polynomial.clone().ok_or(KZGError::NoPolynomial)
     }
 
@@ -137,7 +141,7 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         self.commitment.is_some()
     }
 
-    pub fn polynomial(&self) -> Option<&Polynomial<E>> {
+    pub fn polynomial(&self) -> Option<&Polynomial<E::Fr>> {
         self.polynomial.as_ref()
     }
 
@@ -178,7 +182,7 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
-                let zeros: Polynomial<E> = op_tree(
+                let zeros: Polynomial<E::Fr> = op_tree(
                     points.len(),
                     &|i| {
                         let mut coeffs = vec![-points[i].0, E::Fr::one()];
@@ -188,7 +192,7 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                 );
 
                 let (xs, ys): (Vec<E::Fr>, Vec<E::Fr>) = points.iter().cloned().unzip();
-                let interpolation = Polynomial::<E>::lagrange_interpolation(
+                let interpolation = Polynomial::lagrange_interpolation(
                     xs.as_slice(),
                     ys.as_slice(),
                 );
@@ -221,7 +225,7 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
     pub fn verify_poly(
         &self,
         commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E>,
+        polynomial: &Polynomial<E::Fr>,
     ) -> bool {
         let mut check = self.parameters.g * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
@@ -255,7 +259,7 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
         commitment: &KZGCommitment<E>,
         witness: &KZGBatchWitness<E>,
     ) -> bool {
-        let z: Polynomial<E> = op_tree(
+        let z: Polynomial<E::Fr> = op_tree(
             points.len(),
             &|i| {
                 let mut coeffs = vec![-points[i].0, E::Fr::one()];
@@ -323,6 +327,7 @@ mod tests {
     use super::*;
     use bls12_381::{Bls12, Scalar};
     use lazy_static::lazy_static;
+    use pairing::group::ff::PrimeField;
     use rand::{rngs::SmallRng, Rng, SeedableRng};
     use std::sync::Mutex;
 
@@ -352,12 +357,12 @@ mod tests {
     }
 
     // never returns zero polynomial
-    fn random_polynomial<E: Engine>(
+    fn random_polynomial<S: PrimeField>(
         min_coeffs: usize,
         max_coeffs: usize
-    ) -> Polynomial<E> {
+    ) -> Polynomial<S> {
         let num_coeffs = RNG_1.lock().unwrap().gen_range(min_coeffs..max_coeffs);
-        let mut coeffs = vec![E::Fr::zero(); max_coeffs];
+        let mut coeffs = vec![S::zero(); max_coeffs];
 
         for i in 0..num_coeffs {
             coeffs[i] = RNG_1.lock().unwrap().gen::<u64>().into();
@@ -371,7 +376,7 @@ mod tests {
     fn assert_verify_poly<E: Engine + Debug>(
         verifier: &KZGVerifier<E>,
         commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E>,
+        polynomial: &Polynomial<E::Fr>,
     ) {
         assert!(
             verifier.verify_poly(&commitment, &polynomial),
@@ -384,7 +389,7 @@ mod tests {
     fn assert_verify_poly_fails<E: Engine + Debug>(
         verifier: &KZGVerifier<E>,
         commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E>,
+        polynomial: &Polynomial<E::Fr>,
     ) {
         assert!(
             !verifier.verify_poly(&commitment, &polynomial),
