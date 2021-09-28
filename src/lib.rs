@@ -5,9 +5,9 @@ use pairing::{
 };
 use thiserror::Error;
 
-pub mod worker;
-pub mod polynomial;
 pub mod ft;
+pub mod polynomial;
+pub mod worker;
 
 use polynomial::{op_tree, Polynomial};
 
@@ -192,10 +192,8 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                 );
 
                 let (xs, ys): (Vec<E::Fr>, Vec<E::Fr>) = points.iter().cloned().unzip();
-                let interpolation = Polynomial::lagrange_interpolation(
-                    xs.as_slice(),
-                    ys.as_slice(),
-                );
+                let interpolation =
+                    Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice());
 
                 let numerator = polynomial - &interpolation;
                 let (psi, rem) = numerator.long_division(&zeros);
@@ -346,10 +344,7 @@ mod tests {
 
     fn test_participants<'params, E: Engine>(
         params: &'params KZGParams<E>,
-    ) -> (
-        KZGProver<'params, E>,
-        KZGVerifier<'params, E>,
-    ) {
+    ) -> (KZGProver<'params, E>, KZGVerifier<'params, E>) {
         let prover = KZGProver::new(params);
         let verifier = KZGVerifier::new(params);
 
@@ -357,10 +352,7 @@ mod tests {
     }
 
     // never returns zero polynomial
-    fn random_polynomial<S: PrimeField>(
-        min_coeffs: usize,
-        max_coeffs: usize
-    ) -> Polynomial<S> {
+    fn random_polynomial<S: PrimeField>(min_coeffs: usize, max_coeffs: usize) -> Polynomial<S> {
         let num_coeffs = RNG_1.lock().unwrap().gen_range(min_coeffs..max_coeffs);
         let mut coeffs = vec![S::zero(); max_coeffs];
 
@@ -514,7 +506,6 @@ mod tests {
         assert!(!verifier.verify_eval_batched(&other_points, &commitment, &witness))
     }
 
-
     #[test]
     fn test_eval_batched_all_points() {
         let params = test_setup::<Bls12, 15>();
@@ -531,5 +522,4 @@ mod tests {
         let witness = prover.create_witness_batched(points.as_slice()).unwrap();
         assert!(verifier.verify_eval_batched(points.as_slice(), &commitment, &witness));
     }
-
 }

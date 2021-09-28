@@ -1,7 +1,7 @@
 use core::borrow::Borrow;
 use core::cmp::{Eq, PartialEq};
 use core::ops::{Add, AddAssign, Mul, Range, Sub, SubAssign};
-use pairing::{group::ff::{Field, PrimeField}};
+use pairing::group::ff::{Field, PrimeField};
 use std::iter::Iterator;
 
 use crate::ft::EvaluationDomain;
@@ -13,9 +13,7 @@ pub struct Polynomial<S: PrimeField> {
     pub coeffs: Vec<S>,
 }
 
-impl<S: PrimeField> PartialEq<Polynomial<S>>
-    for Polynomial<S>
-{
+impl<S: PrimeField> PartialEq<Polynomial<S>> for Polynomial<S> {
     fn eq(&self, other: &Self) -> bool {
         if self.degree() != other.degree() {
             false
@@ -50,7 +48,7 @@ impl<S: PrimeField> Polynomial<S> {
     pub fn new_zero_with_size(cap: usize) -> Polynomial<S> {
         Polynomial {
             degree: 0,
-            coeffs: vec![S::zero(); cap]
+            coeffs: vec![S::zero(); cap],
         }
     }
 
@@ -61,10 +59,7 @@ impl<S: PrimeField> Polynomial<S> {
     }
 
     /// note: use this carefully, as setting the degree incorrect can lead to the degree being inconsistent
-    pub fn new_from_coeffs(
-        coeffs: Vec<S>,
-        degree: usize,
-    ) -> Polynomial<S> {
+    pub fn new_from_coeffs(coeffs: Vec<S>, degree: usize) -> Polynomial<S> {
         Polynomial { degree, coeffs }
     }
 
@@ -132,7 +127,7 @@ impl<S: PrimeField> Polynomial<S> {
     pub fn fft_mul(&self, other: Polynomial<S>, worker: &Worker) -> Polynomial<S> {
         let mut lhs = EvaluationDomain::from(self.clone());
         let mut rhs = EvaluationDomain::from(other);
-        
+
         lhs.fft(worker);
         rhs.fft(worker);
         lhs.mul_assign(worker, &rhs);
@@ -140,10 +135,7 @@ impl<S: PrimeField> Polynomial<S> {
         lhs.into()
     }
 
-    pub fn long_division(
-        &self,
-        divisor: &Self,
-    ) -> (Polynomial<S>, Option<Polynomial<S>>) {
+    pub fn long_division(&self, divisor: &Self) -> (Polynomial<S>, Option<Polynomial<S>>) {
         if self.is_zero() {
             (Self::new_zero(), None)
         } else if divisor.is_zero() {
@@ -187,7 +179,7 @@ impl<S: PrimeField> Polynomial<S> {
             let coeffs = vec![ys[0] - xs[0], S::one()];
             return Polynomial::new_from_coeffs(coeffs, 1);
         }
-        
+
         op_tree(
             xs.len(),
             &|i| {
@@ -200,14 +192,11 @@ impl<S: PrimeField> Polynomial<S> {
 
                         let d = xs[i] - xs[j];
                         let d = d.invert().unwrap();
-                        let coeffs = vec![
-                            -xs[j] * d,
-                            d
-                        ];
+                        let coeffs = vec![-xs[j] * d, d];
 
                         Polynomial::new_from_coeffs(coeffs, 1)
                     },
-                    &|a, b| a.fft_mul(b, &worker)
+                    &|a, b| a.fft_mul(b, &worker),
                 )
                 .scalar_multiplication(ys[i])
             },
@@ -286,9 +275,7 @@ impl<S: PrimeField> Add for Polynomial<S> {
     }
 }
 
-impl<S: PrimeField, R: Borrow<Polynomial<S>>> AddAssign<R>
-    for Polynomial<S>
-{
+impl<S: PrimeField, R: Borrow<Polynomial<S>>> AddAssign<R> for Polynomial<S> {
     fn add_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
         for i in 0..rhs.num_coeffs() {
@@ -315,9 +302,7 @@ impl<'a, S: PrimeField> Sub for &'a Polynomial<S> {
     }
 }
 
-impl<S: PrimeField, R: Borrow<Polynomial<S>>> SubAssign<R>
-    for Polynomial<S>
-{
+impl<S: PrimeField, R: Borrow<Polynomial<S>>> SubAssign<R> for Polynomial<S> {
     fn sub_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
         for i in 0..rhs.num_coeffs() {
@@ -328,9 +313,7 @@ impl<S: PrimeField, R: Borrow<Polynomial<S>>> SubAssign<R>
     }
 }
 
-impl<S: PrimeField> Mul<Polynomial<S>>
-    for Polynomial<S>
-{
+impl<S: PrimeField> Mul<Polynomial<S>> for Polynomial<S> {
     type Output = Polynomial<S>;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -395,8 +378,7 @@ mod tests {
         );
 
         // x^3 + 2x^2 - 3x + 4 / x - 7 = x^2 + 9x + 60 r 424
-        let x =
-            Polynomial::new(vec![4.into(), -Scalar::from(3), 2.into(), Scalar::one()]);
+        let x = Polynomial::new(vec![4.into(), -Scalar::from(3), 2.into(), Scalar::one()]);
         let y = Polynomial::new(vec![
             -Scalar::from(7),
             Scalar::one(),
@@ -408,7 +390,12 @@ mod tests {
         assert!(r.is_some());
         assert_eq!(
             r.unwrap(),
-            Polynomial::new(vec![424.into(), Scalar::zero(), Scalar::zero(), Scalar::zero(),])
+            Polynomial::new(vec![
+                424.into(),
+                Scalar::zero(),
+                Scalar::zero(),
+                Scalar::zero(),
+            ])
         );
         assert_eq!(
             q,
@@ -416,8 +403,7 @@ mod tests {
         );
 
         // x^3 + 6x^2 + 13x + 10 / x + 2 = x^2 + 4x + 5 r 0
-        let x =
-            Polynomial::new(vec![10.into(), 13.into(), 6.into(), Scalar::one()]);
+        let x = Polynomial::new(vec![10.into(), 13.into(), 6.into(), Scalar::one()]);
         let y = Polynomial::new(vec![
             Scalar::from(2),
             Scalar::one(),
@@ -490,17 +476,10 @@ mod tests {
 
     #[test]
     fn test_interpolation() {
-        let xs: Vec<Scalar> = vec![2]
-            .into_iter()
-            .map(|x| x.into())
-            .collect();
-        let ys: Vec<Scalar> = vec![8]
-            .into_iter()
-            .map(|x| x.into())
-            .collect();
+        let xs: Vec<Scalar> = vec![2].into_iter().map(|x| x.into()).collect();
+        let ys: Vec<Scalar> = vec![8].into_iter().map(|x| x.into()).collect();
 
-        let interpolation =
-            Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+        let interpolation = Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice());
 
         for (&x, &y) in xs.iter().zip(ys.iter()) {
             assert_eq!(interpolation.eval(x), y);
@@ -514,8 +493,7 @@ mod tests {
             .into_iter()
             .map(|x| x.into())
             .collect();
-        let interpolation =
-            Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+        let interpolation = Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice());
 
         for (&x, &y) in xs.iter().zip(ys.iter()) {
             assert_eq!(interpolation.eval(x), y);

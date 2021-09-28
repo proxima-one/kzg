@@ -39,3 +39,7 @@ harness = false
 [[bench]]
 name = "verify_eval"
 harness = false
+
+[[bench]]
+name = "poly_arithmetic"
+harness = false

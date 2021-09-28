@@ -1,9 +1,12 @@
-use pairing::{Engine, group::{ff::{Field, PrimeField}}};
-use std::ops::{MulAssign, SubAssign, AddAssign};
-use std::convert::TryFrom;
+use crate::polynomial::Polynomial;
 use crate::worker::Worker;
 use crate::KZGError;
-use crate::polynomial::Polynomial;
+use pairing::{
+    group::ff::{Field, PrimeField},
+    Engine,
+};
+use std::convert::TryFrom;
+use std::ops::{AddAssign, MulAssign, SubAssign};
 
 pub struct EvaluationDomain<S: PrimeField> {
     coeffs: Vec<S>,
@@ -47,7 +50,7 @@ impl<S: PrimeField> EvaluationDomain<S> {
         // Compute the size of our evaluation domain
         let mut m = 1;
         let mut exp = 0;
-        
+
         // TODO cache this in a lazy static
         while m < coeffs.len() {
             m *= 2;
@@ -245,13 +248,7 @@ fn serial_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32) {
     }
 }
 
-fn parallel_fft<S: PrimeField>(
-    a: &mut [S],
-    worker: &Worker,
-    omega: &S,
-    log_n: u32,
-    log_cpus: u32,
-) {
+fn parallel_fft<S: PrimeField>(a: &mut [S], worker: &Worker, omega: &S, log_n: u32, log_cpus: u32) {
     assert!(log_n >= log_cpus);
 
     let num_cpus = 1 << log_cpus;
@@ -315,12 +312,8 @@ fn polynomial_arith() {
 
         for coeffs_a in vec![0, 1, 5, 10, 50] {
             for coeffs_b in vec![0, 1, 5, 10, 50] {
-                let mut a: Vec<_> = (0..coeffs_a)
-                    .map(|_| S::random(&mut rng))
-                    .collect();
-                let mut b: Vec<_> = (0..coeffs_b)
-                    .map(|_| S::random(&mut rng))
-                    .collect();
+                let mut a: Vec<_> = (0..coeffs_a).map(|_| S::random(&mut rng)).collect();
+                let mut b: Vec<_> = (0..coeffs_b).map(|_| S::random(&mut rng)).collect();
 
                 // naive evaluation
                 let mut naive = vec![S::zero(); coeffs_a + coeffs_b];
@@ -405,9 +398,7 @@ fn parallel_fft_consistency() {
             for log_d in 0..10 {
                 let d = 1 << log_d;
 
-                let v1 = (0..d)
-                    .map(|_| S::random(&mut rng))
-                    .collect::<Vec<_>>();
+                let v1 = (0..d).map(|_| S::random(&mut rng)).collect::<Vec<_>>();
                 let mut v1 = EvaluationDomain::from_coeffs(v1).unwrap();
                 let mut v2 = EvaluationDomain::from_coeffs(v1.coeffs.clone()).unwrap();
 
