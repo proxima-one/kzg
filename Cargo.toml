@@ -1,6 +1,6 @@
 [package]
 name = "kzg"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2018"
 license = "MIT"
 description = "a simple implementation of the KZG polynomial commitment scheme"
