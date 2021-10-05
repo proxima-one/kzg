@@ -48,21 +48,25 @@ fn bench_poly_arithmetic<S: PrimeField, const NUM_COEFFS: usize>(c: &mut Criteri
         |b| b.iter(|| black_box(f.clone()).long_division(&black_box(g.clone()))),
     );
 
-    // let xs = vec![Scalar::random(&mut rng); NUM_COEFFS - 1];
-    // let ys = vec![Scalar::random(&mut rng); NUM_COEFFS - 1];
+    let mut xs = vec![Scalar::zero(); NUM_COEFFS - 1];
+    let mut ys = vec![Scalar::zero(); NUM_COEFFS - 1];
+    for i in 0..xs.len() {
+        xs[i] = Scalar::random(&mut rng);
+        ys[i] = Scalar::random(&mut rng);
+    }
 
-    // c.bench_function(
-    //     format!("bench_interpolation, degree {}", NUM_COEFFS - 1).as_str(),
-    //     |b| {
-    //         b.iter(|| {
-    //             Polynomial::lagrange_interpolation(
-    //                 xs.as_slice(),
-    //                 ys.as_slice(),
-    //             )
-    //         })
-    //     },
-    // );
+    c.bench_function(
+        format!("bench_interpolation, degree {}", NUM_COEFFS - 1).as_str(),
+        |b| {
+            b.iter(|| {
+                Polynomial::lagrange_interpolation(
+                    xs.as_slice(),
+                    ys.as_slice(),
+                )
+            })
+        },
+    );
 }
 
-criterion_group!(poly_arithmetic, bench_poly_arithmetic<Scalar, 10>, bench_poly_arithmetic<Scalar, 50>, bench_poly_arithmetic<Scalar, 100>, bench_poly_arithmetic<Scalar, 200>, bench_poly_arithmetic<Scalar, 500>);
+criterion_group!(poly_arithmetic, bench_poly_arithmetic<Scalar, 10>, bench_poly_arithmetic<Scalar, 50>, bench_poly_arithmetic<Scalar, 100>, bench_poly_arithmetic<Scalar, 200>);
 criterion_main!(poly_arithmetic);

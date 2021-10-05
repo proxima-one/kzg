@@ -23,12 +23,6 @@ impl<S: PrimeField> From<EvaluationDomain<S>> for Polynomial<S> {
     }
 }
 
-impl<S: PrimeField> From<Polynomial<S>> for EvaluationDomain<S> {
-    fn from(polynomial: Polynomial<S>) -> Self {
-        Self::from_coeffs(polynomial.coeffs).unwrap()
-    }
-}
-
 impl<S: PrimeField> AsRef<[S]> for EvaluationDomain<S> {
     fn as_ref(&self) -> &[S] {
         &self.coeffs
@@ -310,35 +304,19 @@ fn polynomial_arith() {
     fn test_mul<S: PrimeField, R: RngCore>(mut rng: &mut R) {
         let worker = Worker::new();
 
-        for coeffs_a in vec![0, 1, 5, 10, 50] {
-            for coeffs_b in vec![0, 1, 5, 10, 50] {
-                let mut a: Vec<_> = (0..coeffs_a).map(|_| S::random(&mut rng)).collect();
-                let mut b: Vec<_> = (0..coeffs_b).map(|_| S::random(&mut rng)).collect();
+        for coeffs_a in vec![1, 5, 10, 50] {
+            for coeffs_b in vec![1, 5, 10, 50] {
+                let a: Vec<_> = (0..coeffs_a).map(|_| S::random(&mut rng)).collect();
+                let b: Vec<_> = (0..coeffs_b).map(|_| S::random(&mut rng)).collect();
+
+                let a = Polynomial::new_from_coeffs(a, coeffs_a - 1);
+                let b = Polynomial::new_from_coeffs(b, coeffs_b - 1);
 
                 // naive evaluation
-                let mut naive = vec![S::zero(); coeffs_a + coeffs_b];
-                for (i1, a) in a.iter().enumerate() {
-                    for (i2, b) in b.iter().enumerate() {
-                        let mut prod = *a;
-                        prod.mul_assign(b);
-                        naive[i1 + i2].add_assign(&prod);
-                    }
-                }
+                let naive = a.clone() * b.clone();
+                let fft = a.fft_mul(b, &worker);
 
-                a.resize(coeffs_a + coeffs_b, S::zero());
-                b.resize(coeffs_a + coeffs_b, S::zero());
-
-                let mut a = EvaluationDomain::from_coeffs(a).unwrap();
-                let mut b = EvaluationDomain::from_coeffs(b).unwrap();
-
-                a.fft(&worker);
-                b.fft(&worker);
-                a.mul_assign(&worker, &b);
-                a.ifft(&worker);
-
-                for (naive, fft) in naive.iter().zip(a.coeffs.iter()) {
-                    assert!(naive == fft);
-                }
+                assert!(naive == fft);
             }
         }
     }

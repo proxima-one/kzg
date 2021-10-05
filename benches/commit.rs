@@ -31,5 +31,5 @@ fn bench_commit<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     );
 }
 
-criterion_group!(commit, bench_commit<Bls12, 10>, bench_commit<Bls12, 50>, bench_commit<Bls12, 100>, bench_commit<Bls12, 200>, bench_commit<Bls12, 500>);
+criterion_group!(commit, bench_commit<Bls12, 10>, bench_commit<Bls12, 50>, bench_commit<Bls12, 100>, bench_commit<Bls12, 200>);
 criterion_main!(commit);

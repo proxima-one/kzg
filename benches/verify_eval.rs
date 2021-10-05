@@ -41,5 +41,5 @@ fn bench_verify_eval<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     );
 }
 
-criterion_group!(verify_eval, bench_verify_eval<Bls12, 10>, bench_verify_eval<Bls12, 50>, bench_verify_eval<Bls12, 100>, bench_verify_eval<Bls12, 200>, bench_verify_eval<Bls12, 500>);
+criterion_group!(verify_eval, bench_verify_eval<Bls12, 10>, bench_verify_eval<Bls12, 50>, bench_verify_eval<Bls12, 100>, bench_verify_eval<Bls12, 200>);
 criterion_main!(verify_eval);

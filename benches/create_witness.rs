@@ -22,14 +22,25 @@ fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     let mut prover = KZGProver::new(&params);
     let _commitment = prover.commit(polynomial.clone());
 
-    let x: E::Fr = rng.gen::<u64>().into();
+    let x: E::Fr = E::Fr::random(&mut rng); 
     let y = polynomial.eval(x);
 
     c.bench_function(
         format!("bench_create_witness, degree {}", NUM_COEFFS - 1).as_str(),
         |b| b.iter(|| prover.create_witness(black_box((x, y))).unwrap()),
     );
+
+    let mut points = vec![(E::Fr::zero(), E::Fr::zero()); NUM_COEFFS - 1];
+    for i in 0..points.len() {
+        points[i].0 = E::Fr::random(&mut rng);
+        points[i].1 = polynomial.eval(points[i].0);
+    }
+
+    // c.bench_function(
+    //     format!("bench_create_witness_batched, degree {}", NUM_COEFFS - 1).as_str(),
+    //     |b| b.iter(|| prover.create_witness_batched(black_box(points.as_slice())).unwrap()),
+    // );
 }
 
-criterion_group!(create_witness, bench_create_witness<Bls12, 10>, bench_create_witness<Bls12, 50>, bench_create_witness<Bls12, 100>, bench_create_witness<Bls12, 200>, bench_create_witness<Bls12, 500>);
+criterion_group!(create_witness, bench_create_witness<Bls12, 10>, bench_create_witness<Bls12, 50>, bench_create_witness<Bls12, 100>, bench_create_witness<Bls12, 200>);
 criterion_main!(create_witness);

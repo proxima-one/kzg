@@ -185,7 +185,7 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                 let zeros: Polynomial<E::Fr> = op_tree(
                     points.len(),
                     &|i| {
-                        let mut coeffs = vec![-points[i].0, E::Fr::one()];
+                        let coeffs = vec![-points[i].0, E::Fr::one()];
                         Polynomial::new_from_coeffs(coeffs, 1)
                     },
                     &|a, b| a * b,

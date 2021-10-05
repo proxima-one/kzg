@@ -124,9 +124,16 @@ impl<S: PrimeField> Polynomial<S> {
         res
     }
 
-    pub fn fft_mul(&self, other: Polynomial<S>, worker: &Worker) -> Polynomial<S> {
-        let mut lhs = EvaluationDomain::from(self.clone());
-        let mut rhs = EvaluationDomain::from(other);
+    pub fn fft_mul(self, other: Polynomial<S>, worker: &Worker) -> Polynomial<S> {
+        let n = self.num_coeffs();
+        let k = other.num_coeffs();
+        let mut lhs = self.coeffs;
+        let mut rhs = other.coeffs;
+        lhs.resize(n + k, S::zero());
+        rhs.resize(n + k, S::zero());
+
+        let mut lhs = EvaluationDomain::from_coeffs(lhs).unwrap();
+        let mut rhs = EvaluationDomain::from_coeffs(rhs).unwrap();
 
         lhs.fft(worker);
         rhs.fft(worker);
@@ -172,6 +179,8 @@ impl<S: PrimeField> Polynomial<S> {
     pub fn lagrange_interpolation(xs: &[S], ys: &[S]) -> Polynomial<S> {
         assert_eq!(xs.len(), ys.len());
 
+        let worker = Worker::new();
+
         // handle trivial case where there's only 1 point
         if xs.len() == 1 {
             let coeffs = vec![ys[0] - xs[0], S::one()];
@@ -194,7 +203,8 @@ impl<S: PrimeField> Polynomial<S> {
 
                         Polynomial::new_from_coeffs(coeffs, 1)
                     },
-                    &|a, b| a * b,
+                    // &|a, b| a.fft_mul(b, &worker),
+                    &|a, b| a * b
                 )
                 .scalar_multiplication(ys[i])
             },

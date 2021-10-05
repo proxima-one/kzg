@@ -33,5 +33,5 @@ fn bench_poly_verify<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     );
 }
 
-criterion_group!(poly_verify, bench_poly_verify<Bls12, 10>, bench_poly_verify<Bls12, 50>, bench_poly_verify<Bls12, 100>, bench_poly_verify<Bls12, 200>, bench_poly_verify<Bls12, 500>);
+criterion_group!(poly_verify, bench_poly_verify<Bls12, 10>, bench_poly_verify<Bls12, 50>, bench_poly_verify<Bls12, 100>, bench_poly_verify<Bls12, 200>);
 criterion_main!(poly_verify);
