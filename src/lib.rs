@@ -5,6 +5,7 @@ use pairing::{
 };
 use thiserror::Error;
 
+pub mod utils;
 pub mod ft;
 pub mod polynomial;
 pub mod worker;
@@ -174,7 +175,6 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         }
     }
 
-    // #[cfg(any(std))]
     pub fn create_witness_batched(
         &self,
         points: &[(E::Fr, E::Fr)],
@@ -192,8 +192,12 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                 );
 
                 let (xs, ys): (Vec<E::Fr>, Vec<E::Fr>) = points.iter().cloned().unzip();
+
                 let interpolation =
                     Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+               
+                println!("{:#?}", interpolation);
+                println!("polynomial.degree(): {}", polynomial.degree());
 
                 let numerator = polynomial - &interpolation;
                 let (psi, rem) = numerator.long_division(&zeros);

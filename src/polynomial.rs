@@ -2,10 +2,14 @@ use core::borrow::Borrow;
 use core::cmp::{Eq, PartialEq};
 use core::ops::{Add, AddAssign, Mul, Range, Sub, SubAssign};
 use pairing::group::ff::{Field, PrimeField};
+use std::collections::HashMap;
 use std::iter::Iterator;
 
 use crate::ft::EvaluationDomain;
+use crate::utils::{log2_ceil, pad_to_power_of_two};
 use crate::worker::Worker;
+
+const FFT_MUL_THRESHOLD: usize = 32;
 
 #[derive(Clone, Debug)]
 pub struct Polynomial<S: PrimeField> {
@@ -42,6 +46,13 @@ impl<S: PrimeField> Polynomial<S> {
         Polynomial {
             degree: 0,
             coeffs: vec![S::zero()],
+        }
+    }
+
+    pub fn new_monic_of_degree(degree: usize) -> Polynomial<S> {
+        Polynomial {
+            degree,
+            coeffs: vec![S::one(); degree + 1]
         }
     }
 
@@ -124,11 +135,20 @@ impl<S: PrimeField> Polynomial<S> {
         res
     }
 
-    pub fn fft_mul(self, other: Polynomial<S>, worker: &Worker) -> Polynomial<S> {
+    pub fn best_mul(&self, other: &Polynomial<S>) -> Polynomial<S> {
+        if self.degree() < FFT_MUL_THRESHOLD || other.degree() < FFT_MUL_THRESHOLD {
+            self.clone() * other.clone()
+        } else {
+            let worker = Worker::new();
+            self.fft_mul(&other, &worker)
+        }
+    }
+
+    pub fn fft_mul(&self, other: &Polynomial<S>, worker: &Worker) -> Polynomial<S> {
         let n = self.num_coeffs();
         let k = other.num_coeffs();
-        let mut lhs = self.coeffs;
-        let mut rhs = other.coeffs;
+        let mut lhs = self.coeffs.clone();
+        let mut rhs = other.coeffs.clone();
         lhs.resize(n + k, S::zero());
         rhs.resize(n + k, S::zero());
 
@@ -147,6 +167,8 @@ impl<S: PrimeField> Polynomial<S> {
             (Self::new_zero(), None)
         } else if divisor.is_zero() {
             panic!("divisor must not be zero!")
+        } else if self.degree < divisor.degree() {
+            (Self::new_zero(), Some(self.clone()))
         } else {
             let mut remainder = self.clone();
             let mut quotient = Polynomial::new_from_coeffs(
@@ -176,40 +198,35 @@ impl<S: PrimeField> Polynomial<S> {
         }
     }
 
+    pub fn multi_eval(&self, xs: &[S]) -> Vec<S> {
+        assert!(xs.len() > self.degree());
+        let tree = SubProductTree::new_from_points(xs);
+        tree.eval(xs.as_ref(), self)
+    }
+
     pub fn lagrange_interpolation(xs: &[S], ys: &[S]) -> Polynomial<S> {
         assert_eq!(xs.len(), ys.len());
 
-        let worker = Worker::new();
-
-        // handle trivial case where there's only 1 point
         if xs.len() == 1 {
             let coeffs = vec![ys[0] - xs[0], S::one()];
             return Polynomial::new_from_coeffs(coeffs, 1);
         }
 
-        op_tree(
-            xs.len(),
-            &|i| {
-                op_tree(
-                    xs.len() - 1,
-                    &|mut j| {
-                        if j >= i {
-                            j += 1;
-                        }
+        // let xs = pad_to_power_of_two(xs);
+        // let ys = pad_to_power_of_two(ys);
+        let tree = SubProductTree::new_from_points(xs);
 
-                        let d = xs[i] - xs[j];
-                        let d = d.invert().unwrap();
-                        let coeffs = vec![-xs[j] * d, d];
+        let mut m_prime = tree.product.clone();
+        for i in 1..m_prime.num_coeffs() {
+            m_prime.coeffs[i] *= S::from(i as u64);
+        }
+        m_prime.coeffs.remove(0);
+        m_prime.degree -= 1;
 
-                        Polynomial::new_from_coeffs(coeffs, 1)
-                    },
-                    // &|a, b| a.fft_mul(b, &worker),
-                    &|a, b| a * b
-                )
-                .scalar_multiplication(ys[i])
-            },
-            &|a, b| a + b,
-        )
+
+        let cs: Vec<S> = m_prime.multi_eval(xs).iter().enumerate().map(|(i, c)| ys[i] * c.invert().unwrap()).collect();
+
+        tree.linear_mod_combination(cs.as_slice())
     }
 
     pub fn scalar_multiplication(mut self, rhs: S) -> Polynomial<S> {
@@ -217,6 +234,71 @@ impl<S: PrimeField> Polynomial<S> {
             self.coeffs[i] *= rhs;
         }
         self
+    }
+}
+
+pub struct SubProductTree<S: PrimeField> {
+    product: Polynomial<S>,
+    left: Option<Box<SubProductTree<S>>>,
+    right: Option<Box<SubProductTree<S>>>
+}
+
+impl<S: PrimeField> SubProductTree<S> {
+    pub fn new_from_points(xs: &[S]) -> SubProductTree<S> {
+        match xs.len() {
+            1 => SubProductTree {
+                product: Polynomial::new_from_coeffs(vec![-xs[0], S::one()], 1),
+                left: None,
+                right: None
+            },
+            n => {
+                let left = SubProductTree::new_from_points(&xs[..n / 2]);
+                let right = SubProductTree::new_from_points(&xs[n / 2..]);
+                SubProductTree {
+                    product: left.product.best_mul(&right.product),
+                    left: Some(Box::new(left)),
+                    right: Some(Box::new(right))
+                }
+            }
+        }
+    }
+
+    pub fn eval(&self, xs: &[S], f: &Polynomial<S>) -> Vec<S> {
+        let n = xs.len();
+
+        if n == 1 {
+            let y = f.eval(xs[0]);
+            vec![y]
+        } else {
+
+            let left = self.left.as_ref().unwrap();
+            let right = self.right.as_ref().unwrap();
+
+            let (_, r0) = f.long_division(&left.product);
+            let (_, r1) = f.long_division(&right.product);
+
+            let mut l0 = left.eval(&xs[..n/2], &r0.unwrap());
+            let l1 = right.eval(&xs[n/2..], &r1.unwrap());
+
+            l0.extend(l1);
+            l0
+        }
+    }
+
+    pub fn linear_mod_combination(&self, cs: &[S]) -> Polynomial<S> {
+        let n = cs.len();
+
+        if n == 1 {
+            Polynomial::new_from_coeffs(vec![cs[0]], 0)
+        } else {
+            let left = self.left.as_ref().unwrap();
+            let right = self.right.as_ref().unwrap();
+
+            let l = left.linear_mod_combination(&cs[..n/2]);
+            let r = right.linear_mod_combination(&cs[n/2..]);
+            
+            right.product.best_mul(&l) + left.product.best_mul(&r)
+        }
     }
 }
 
@@ -447,39 +529,49 @@ mod tests {
         assert_eq!(polynomial.eval(5.into()), 3834.into());
     }
 
-    fn do_test_sum_tree(ops: &Vec<i32>) {
-        let expected = ops.iter().fold(0, |acc, curr| acc + curr);
-        let got = op_tree(ops.len(), &|i| ops[i], &|a, b| a + b);
-        assert_eq!(expected, got);
-    }
-
-    fn do_test_product_tree(ops: &Vec<i32>) {
-        let expected = ops.iter().fold(1, |acc, curr| acc * curr);
-        let got = op_tree(ops.len(), &|i| ops[i], &|a, b| a * b);
-        assert_eq!(expected, got);
+    fn verify_tree(tree: &SubProductTree<Scalar>) {
+        if tree.left.is_some() && tree.right.is_some() {
+            assert!(
+                tree.product == tree.left.as_ref().unwrap().product.best_mul(&tree.right.as_ref().unwrap().product)
+            );
+        }
     }
 
     #[test]
-    fn test_tree_math() {
-        let ops = vec![0];
-        do_test_sum_tree(&ops);
-        do_test_product_tree(&ops);
+    fn test_new_subproduct_tree() {
+        let xs = [Scalar::from(2), Scalar::from(5), Scalar::from(7), Scalar::from(90), Scalar::from(111), Scalar::from(31), Scalar::from(29)];
 
-        let ops = vec![4, 2];
-        do_test_sum_tree(&ops);
-        do_test_product_tree(&ops);
+        let tree = SubProductTree::new_from_points(&xs);
+        verify_tree(&tree);
 
-        let ops = vec![9, 41, -5];
-        do_test_sum_tree(&ops);
-        do_test_product_tree(&ops);
+        let xs = [Scalar::from(2), Scalar::from(5), Scalar::from(7), Scalar::from(90), Scalar::from(111)];
+        let tree = SubProductTree::new_from_points(&xs);
+        verify_tree(&tree);
+    }
 
-        let ops = vec![1, 5, 8, 9, 12, -5, 0, 34, -9];
-        do_test_sum_tree(&ops);
-        do_test_product_tree(&ops);
+    #[test]
+    fn test_fast_multi_eval() {
+        let polynomial: Polynomial<Scalar> = Polynomial::new(
+            vec![2, 5, 7, 90, 111]
+                .into_iter()
+                .map(|x| x.into())
+                .collect(),
+        );
 
-        let ops = vec![-1, 4, 9, 11, -4, 10, 2, 4, 4, 4, 7, -1];
-        do_test_sum_tree(&ops);
-        do_test_product_tree(&ops);
+        let xs: Vec<Scalar> = vec![1, 2, 3, 4, 5, 6, 7, 8].into_iter().map(|x| x.into()).collect();
+        
+        let mut fast = polynomial.multi_eval(xs.as_slice());
+        fast.truncate(xs.len());
+        let mut slow = Vec::new();
+
+        for i in 0..xs.len() {
+           let slow_y = polynomial.eval(xs[i]);
+           println!("x: {:?}, slow: {:?}, fast: {:?}", xs[i], slow_y, fast[i]);
+           slow.push(slow_y);
+        }
+
+        let slow: Vec<Scalar> =  xs.iter().map(|x| polynomial.eval(*x)).collect();
+        assert!(fast == slow);
     }
 
     #[test]

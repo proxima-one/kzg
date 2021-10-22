@@ -22,7 +22,7 @@ fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     let mut prover = KZGProver::new(&params);
     let _commitment = prover.commit(polynomial.clone());
 
-    let x: E::Fr = E::Fr::random(&mut rng); 
+    let x: E::Fr = E::Fr::random(&mut rng);
     let y = polynomial.eval(x);
 
     c.bench_function(

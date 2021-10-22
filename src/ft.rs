@@ -314,7 +314,7 @@ fn polynomial_arith() {
 
                 // naive evaluation
                 let naive = a.clone() * b.clone();
-                let fft = a.fft_mul(b, &worker);
+                let fft = a.fft_mul(&b, &worker);
 
                 assert!(naive == fft);
             }

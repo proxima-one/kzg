@@ -37,7 +37,7 @@ fn bench_poly_arithmetic<S: PrimeField, const NUM_COEFFS: usize>(c: &mut Criteri
     c.bench_function(
         format!("bench_mul_fft, degree {}", NUM_COEFFS - 1).as_str(),
         |b| {
-            b.iter(|| black_box(f.clone()).fft_mul(black_box(g.clone()), &worker));
+            b.iter(|| black_box(f.clone()).fft_mul(black_box(&g), &worker));
         },
     );
 
@@ -57,14 +57,7 @@ fn bench_poly_arithmetic<S: PrimeField, const NUM_COEFFS: usize>(c: &mut Criteri
 
     c.bench_function(
         format!("bench_interpolation, degree {}", NUM_COEFFS - 1).as_str(),
-        |b| {
-            b.iter(|| {
-                Polynomial::lagrange_interpolation(
-                    xs.as_slice(),
-                    ys.as_slice(),
-                )
-            })
-        },
+        |b| b.iter(|| Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice())),
     );
 }
 
