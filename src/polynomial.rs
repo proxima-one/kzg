@@ -9,7 +9,7 @@ use crate::ft::EvaluationDomain;
 use crate::utils::{log2_ceil, pad_to_power_of_two};
 use crate::worker::Worker;
 
-const FFT_MUL_THRESHOLD: usize = 32;
+const FFT_MUL_THRESHOLD: usize = 128;
 
 #[derive(Clone, Debug)]
 pub struct Polynomial<S: PrimeField> {
