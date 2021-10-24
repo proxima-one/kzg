@@ -49,10 +49,26 @@ impl<S: PrimeField> Polynomial<S> {
         }
     }
 
+    pub fn from_scalar(scalar: S) -> Polynomial<S> {
+        Polynomial {
+            degree: 0,
+            coeffs: vec![scalar]
+        }
+    }
+
     pub fn new_monic_of_degree(degree: usize) -> Polynomial<S> {
         Polynomial {
             degree,
             coeffs: vec![S::one(); degree + 1]
+        }
+    }
+
+    pub fn new_single_term(degree: usize) -> Polynomial<S> {
+        let mut coeffs = vec![S::zero(); degree + 1];
+        coeffs[degree] = S::one();
+        Polynomial {
+            degree,
+            coeffs
         }
     }
 
@@ -92,6 +108,16 @@ impl<S: PrimeField> Polynomial<S> {
 
             i -= 1;
         }
+    }
+
+    pub fn truncate(&mut self, degree: usize) {
+        self.degree = degree;
+        self.coeffs.truncate(degree + 1);
+    }
+
+    pub fn reverse(&mut self) {
+        self.coeffs.truncate(self.num_coeffs());
+        self.coeffs.reverse();
     }
 
     pub fn shrink_degree(&mut self) {
@@ -135,15 +161,6 @@ impl<S: PrimeField> Polynomial<S> {
         res
     }
 
-    pub fn best_mul(&self, other: &Polynomial<S>) -> Polynomial<S> {
-        if self.degree() < FFT_MUL_THRESHOLD || other.degree() < FFT_MUL_THRESHOLD {
-            self.clone() * other.clone()
-        } else {
-            let worker = Worker::new();
-            self.fft_mul(&other, &worker)
-        }
-    }
-
     pub fn fft_mul(&self, other: &Polynomial<S>, worker: &Worker) -> Polynomial<S> {
         let n = self.num_coeffs();
         let k = other.num_coeffs();
@@ -160,6 +177,15 @@ impl<S: PrimeField> Polynomial<S> {
         lhs.mul_assign(worker, &rhs);
         lhs.ifft(worker);
         lhs.into()
+    }
+
+    pub fn best_mul(&self, other: &Polynomial<S>) -> Polynomial<S> {
+        if self.degree() < FFT_MUL_THRESHOLD || other.degree() < FFT_MUL_THRESHOLD {
+            self.clone() * other.clone()
+        } else {
+            let worker = Worker::new();
+            self.fft_mul(&other, &worker)
+        }
     }
 
     pub fn long_division(&self, divisor: &Self) -> (Polynomial<S>, Option<Polynomial<S>>) {
@@ -195,6 +221,44 @@ impl<S: PrimeField> Polynomial<S> {
             } else {
                 (quotient, Some(remainder))
             }
+        }
+    }
+
+    pub fn fft_div(&self, divisor: &Self) -> (Polynomial<S>, Option<Polynomial<S>>) {
+        let m = self.degree();
+        let n = divisor.degree();
+
+        let mut a_rev = self.clone();
+        let mut b_rev = divisor.clone();
+
+        a_rev.reverse();
+        b_rev.reverse();
+
+        let inv = b_rev.invert(m - n);
+        
+        let q_rev = a_rev.best_mul(&inv);
+        let mut q = q_rev.clone();
+        q.truncate(m - n);
+        q.reverse();
+
+        let r = self - &divisor.best_mul(&q);
+        if r.is_zero() {
+            (q, None)
+        } else {
+            (q, Some(r))
+        }
+    }
+
+    /// computes the first degree + 1 terms of the formal series 1/f(x)
+    /// panics if coeffs[0] == 0 or lead_coeff == 0
+    pub fn invert(&self, degree: usize) -> Polynomial<S> {
+        if degree == 0 {
+            Polynomial::new_from_coeffs(vec![self.coeffs[0].invert().unwrap()], 0)
+        } else {
+            let c = self.invert(degree / 2);
+            let mut res = c.best_mul(&Polynomial::from_scalar(2.into()).sub(&c.best_mul(self)));
+            res.truncate(degree);
+            res
         }
     }
 
@@ -383,6 +447,11 @@ impl<'a, S: PrimeField> Sub for &'a Polynomial<S> {
 
     fn sub(self, rhs: Self) -> Self::Output {
         let mut res = self.clone();
+        if rhs.num_coeffs() > self.num_coeffs() {
+            res.coeffs.resize(rhs.num_coeffs(), S::zero());
+            res.degree = rhs.degree();
+        }
+
         for i in 0..rhs.num_coeffs() {
             res.coeffs[i] -= rhs.coeffs[i];
         }
@@ -425,7 +494,7 @@ mod tests {
     use bls12_381::{Bls12, Scalar};
 
     #[test]
-    fn test_polynomial_division() {
+    fn test_long_division() {
         // test cases taken from https://tutorial.math.lamar.edu/Solutions/Alg/DividingPolynomials
 
         // 3x^4 - 5x^2 + 3 / x + 2 = 3x^3 - 6x^2 + 7x - 14 r 31
@@ -502,6 +571,91 @@ mod tests {
         ]);
 
         let (q, r) = x.long_division(&y);
+        assert!(r.is_none());
+        assert_eq!(
+            q,
+            Polynomial::new(vec![5.into(), 4.into(), Scalar::one(), Scalar::zero(),])
+        );
+    }
+
+    #[test]
+    fn test_fft_division() {
+        // test cases taken from https://tutorial.math.lamar.edu/Solutions/Alg/DividingPolynomials
+
+        // 3x^4 - 5x^2 + 3 / x + 2 = 3x^3 - 6x^2 + 7x - 14 r 31
+        let x = Polynomial::new(vec![
+            3.into(),
+            Scalar::zero(),
+            -Scalar::from(5),
+            Scalar::zero(),
+            3.into(),
+        ]);
+        let y = Polynomial::new(vec![
+            2.into(),
+            Scalar::one(),
+            Scalar::zero(),
+            Scalar::zero(),
+            Scalar::zero(),
+        ]);
+
+        let (q, r) = x.fft_div(&y);
+        assert!(r.is_some());
+        assert_eq!(
+            r.unwrap(),
+            Polynomial::new(vec![
+                31.into(),
+                Scalar::zero(),
+                Scalar::zero(),
+                Scalar::zero(),
+                Scalar::zero()
+            ])
+        );
+        assert_eq!(
+            q,
+            Polynomial::new(vec![
+                -Scalar::from(14),
+                7.into(),
+                -Scalar::from(6),
+                3.into(),
+                Scalar::zero(),
+            ])
+        );
+
+        // x^3 + 2x^2 - 3x + 4 / x - 7 = x^2 + 9x + 60 r 424
+        let x = Polynomial::new(vec![4.into(), -Scalar::from(3), 2.into(), Scalar::one()]);
+        let y = Polynomial::new(vec![
+            -Scalar::from(7),
+            Scalar::one(),
+            Scalar::zero(),
+            Scalar::zero(),
+        ]);
+
+        let (q, r) = x.fft_div(&y);
+        assert!(r.is_some());
+        assert_eq!(
+            r.unwrap(),
+            Polynomial::new(vec![
+                424.into(),
+                Scalar::zero(),
+                Scalar::zero(),
+                Scalar::zero(),
+            ])
+        );
+        assert_eq!(
+            q,
+            Polynomial::new(vec![60.into(), 9.into(), Scalar::one(), Scalar::zero(),])
+        );
+
+        // x^3 + 6x^2 + 13x + 10 / x + 2 = x^2 + 4x + 5 r 0
+        let x = Polynomial::new(vec![10.into(), 13.into(), 6.into(), Scalar::one()]);
+        let y = Polynomial::new(vec![
+            Scalar::from(2),
+            Scalar::one(),
+            Scalar::zero(),
+            Scalar::zero(),
+        ]);
+
+        let (q, r) = x.fft_div(&y);
         assert!(r.is_none());
         assert_eq!(
             q,
