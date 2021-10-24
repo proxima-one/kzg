@@ -36,10 +36,10 @@ fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
         points[i].1 = polynomial.eval(points[i].0);
     }
 
-    // c.bench_function(
-    //     format!("bench_create_witness_batched, degree {}", NUM_COEFFS - 1).as_str(),
-    //     |b| b.iter(|| prover.create_witness_batched(black_box(points.as_slice())).unwrap()),
-    // );
+    c.bench_function(
+        format!("bench_create_witness_batched, degree {}", NUM_COEFFS - 1).as_str(),
+        |b| b.iter(|| prover.create_witness_batched(black_box(points.as_slice())).unwrap()),
+    );
 }
 
 criterion_group!(create_witness, bench_create_witness<Bls12, 10>, bench_create_witness<Bls12, 50>, bench_create_witness<Bls12, 100>, bench_create_witness<Bls12, 200>);

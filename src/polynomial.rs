@@ -720,7 +720,6 @@ mod tests {
 
         for i in 0..xs.len() {
            let slow_y = polynomial.eval(xs[i]);
-           println!("x: {:?}, slow: {:?}, fast: {:?}", xs[i], slow_y, fast[i]);
            slow.push(slow_y);
         }
 

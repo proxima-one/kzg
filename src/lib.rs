@@ -196,9 +196,6 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                 let interpolation =
                     Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice());
                
-                println!("{:#?}", interpolation);
-                println!("polynomial.degree(): {}", polynomial.degree());
-
                 let numerator = polynomial - &interpolation;
                 let (psi, rem) = numerator.long_division(&zeros);
                 match rem {
