@@ -268,6 +268,29 @@ impl<S: PrimeField> Polynomial<S> {
         tree.eval(xs.as_ref(), self)
     }
 
+    /// Performs lagrange interpolation on a pre-computed sub-product tree of xs.
+    /// `tree` must be the same as the result when calling SubProductTree::new_from_points(xs)
+    pub fn lagrange_interpolation_with_tree(xs: &[S], ys: &[S], tree: &SubProductTree<S>) -> Polynomial<S> {
+        assert_eq!(xs.len(), ys.len());
+
+        if xs.len() == 1 {
+            let coeffs = vec![ys[0] - xs[0], S::one()];
+            return Polynomial::new_from_coeffs(coeffs, 1);
+        }
+
+        let mut m_prime = tree.product.clone();
+        for i in 1..m_prime.num_coeffs() {
+            m_prime.coeffs[i] *= S::from(i as u64);
+        }
+        m_prime.coeffs.remove(0);
+        m_prime.degree -= 1;
+
+
+        let cs: Vec<S> = m_prime.multi_eval(xs).iter().enumerate().map(|(i, c)| ys[i] * c.invert().unwrap()).collect();
+
+        tree.linear_mod_combination(cs.as_slice())
+    }
+
     pub fn lagrange_interpolation(xs: &[S], ys: &[S]) -> Polynomial<S> {
         assert_eq!(xs.len(), ys.len());
 
@@ -302,9 +325,9 @@ impl<S: PrimeField> Polynomial<S> {
 }
 
 pub struct SubProductTree<S: PrimeField> {
-    product: Polynomial<S>,
-    left: Option<Box<SubProductTree<S>>>,
-    right: Option<Box<SubProductTree<S>>>
+    pub product: Polynomial<S>,
+    pub left: Option<Box<SubProductTree<S>>>,
+    pub right: Option<Box<SubProductTree<S>>>
 }
 
 impl<S: PrimeField> SubProductTree<S> {

@@ -10,7 +10,7 @@ pub mod ft;
 pub mod polynomial;
 pub mod worker;
 
-use polynomial::{op_tree, Polynomial};
+use polynomial::{Polynomial, SubProductTree, op_tree};
 
 /// parameters from tested setup
 #[derive(Clone, Debug)]
@@ -182,22 +182,14 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
-                let zeros: Polynomial<E::Fr> = op_tree(
-                    points.len(),
-                    &|i| {
-                        let coeffs = vec![-points[i].0, E::Fr::one()];
-                        Polynomial::new_from_coeffs(coeffs, 1)
-                    },
-                    &|a, b| a * b,
-                );
-
                 let (xs, ys): (Vec<E::Fr>, Vec<E::Fr>) = points.iter().cloned().unzip();
+                let tree = SubProductTree::new_from_points(xs.as_slice());
 
                 let interpolation =
-                    Polynomial::lagrange_interpolation(xs.as_slice(), ys.as_slice());
+                    Polynomial::lagrange_interpolation_with_tree(xs.as_slice(), ys.as_slice(), &tree);
                
                 let numerator = polynomial - &interpolation;
-                let (psi, rem) = numerator.long_division(&zeros);
+                let (psi, rem) = numerator.long_division(&tree.product);
                 match rem {
                     Some(_) => Err(KZGError::PointNotOnPolynomial),
                     None => {
@@ -266,7 +258,7 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
                 coeffs[1] = E::Fr::one();
                 Polynomial::new_from_coeffs(coeffs, 1)
             },
-            &|a, b| a * b,
+            &|a, b| a.best_mul(&b),
         );
 
         let mut hz = self.parameters.h * z.coeffs[0];
