@@ -38,6 +38,10 @@ impl<E: Engine> KZGCommitment<E> {
     pub fn inner(&self) -> &E::G1Affine {
         &self.0
     }
+
+    pub fn from_inner(inner: E::G1Affine) -> Self {
+        KZGCommitment(inner)
+    }
 }
 
 // A witness for a single element - "w_i" in the paper. It's a group element.
@@ -52,6 +56,10 @@ impl<E: Engine> KZGWitness<E> {
 
     pub fn inner(&self) -> &E::G1Affine {
         &self.0
+    }
+
+    pub fn from_inner(inner: E::G1Affine) -> Self {
+        KZGWitness(inner)
     }
 }
 
@@ -73,6 +81,10 @@ impl<E: Engine> KZGBatchWitness<E> {
 
     pub fn polynomial(&self) -> &Polynomial<E::Fr> {
         &self.r
+    }
+
+    pub fn from_inner(r: Polynomial<E::Fr>, w: E::G1Affine) -> Self {
+        KZGBatchWitness { r, w }
     }
 }
 
