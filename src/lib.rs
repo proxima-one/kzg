@@ -305,7 +305,7 @@ mod tests {
     use super::*;
     use bls12_381::{Bls12, Scalar};
     use lazy_static::lazy_static;
-    use pairing::group::ff::PrimeField;
+    use pairing::group::ff::PrimeFieldBits;
     use rand::{rngs::SmallRng, Rng, SeedableRng};
     use std::sync::Mutex;
 
@@ -332,7 +332,7 @@ mod tests {
     }
 
     // never returns zero polynomial
-    fn random_polynomial<S: PrimeField>(min_coeffs: usize, max_coeffs: usize) -> Polynomial<S> {
+    fn random_polynomial<S: PrimeFieldBits>(min_coeffs: usize, max_coeffs: usize) -> Polynomial<S> {
         let num_coeffs = RNG_1.lock().unwrap().gen_range(min_coeffs..max_coeffs);
         let mut coeffs = vec![S::zero(); max_coeffs];
 

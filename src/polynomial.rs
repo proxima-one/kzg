@@ -1,9 +1,14 @@
 use core::borrow::Borrow;
 use core::cmp::{Eq, PartialEq};
 use core::ops::{Add, AddAssign, Mul, Range, Sub, SubAssign};
-use pairing::group::ff::{Field, PrimeField};
+use std::fmt;
+use std::marker::PhantomData;
+use pairing::group::ff::{Field, PrimeField, PrimeFieldBits};
 use std::collections::HashMap;
 use std::iter::Iterator;
+
+#[cfg(feature = "serde_support")]
+use serde::{Serialize, Deserialize, Serializer, Deserializer, ser::SerializeStruct, de::Unexpected, de::Visitor, de::Error as SerdeError, de::SeqAccess, de::MapAccess, self};
 
 use crate::ft::EvaluationDomain;
 use crate::utils::{log2_ceil, pad_to_power_of_two};
@@ -31,11 +36,6 @@ impl<S: PrimeField> PartialEq<Polynomial<S>> for Polynomial<S> {
 }
 
 impl<S: PrimeField> Eq for Polynomial<S> {}
-
-pub struct PolynomialSlice<'a, S: PrimeField> {
-    pub degree: usize,
-    pub coeffs: &'a [S],
-}
 
 impl<S: PrimeField> Polynomial<S> {
     pub fn is_zero(&self) -> bool {
@@ -88,13 +88,6 @@ impl<S: PrimeField> Polynomial<S> {
     /// note: use this carefully, as setting the degree incorrect can lead to the degree being inconsistent
     pub fn new_from_coeffs(coeffs: Vec<S>, degree: usize) -> Polynomial<S> {
         Polynomial { degree, coeffs }
-    }
-
-    pub fn slice(&self, range: Range<usize>) -> PolynomialSlice<S> {
-        PolynomialSlice {
-            degree: Self::compute_degree(&self.coeffs, range.len()),
-            coeffs: &self.coeffs[range],
-        }
     }
 
     pub fn compute_degree(coeffs: &Vec<S>, upper_bound: usize) -> usize {
@@ -511,6 +504,205 @@ impl<S: PrimeField> Mul<Polynomial<S>> for Polynomial<S> {
     }
 }
 
+#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
+#[derive(Debug, Clone)]
+struct SerializablePolynomial<S: PrimeFieldBits> {
+    degree: usize,
+    coeffs: Vec<SerializablePrimeField<S>>,
+}
+
+#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
+#[derive(Debug, Clone)]
+struct SerializablePrimeField<S: PrimeField>(S);
+
+#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
+impl<S: PrimeField> From<S> for SerializablePrimeField<S> {
+    fn from(s: S) -> SerializablePrimeField<S> {
+        SerializablePrimeField(s)
+    }
+}
+
+#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
+impl<S: PrimeField> SerializablePrimeField<S> {
+    fn into_inner(self) -> S {
+        self.0
+    }
+}
+
+#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
+impl<F: PrimeField> Serialize for SerializablePrimeField<F> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer
+    {
+        serializer.serialize_bytes(self.0.to_repr().as_ref())
+    }
+}
+
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+use bls12_381::Scalar;
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+impl<'de> Deserialize<'de> for SerializablePrimeField<Scalar> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>
+    {
+        struct PrimeFieldVisitor;
+
+        impl<'de> Visitor<'de> for PrimeFieldVisitor {
+            type Value = Scalar;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("canonical byte representation of a prime field element")
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: SerdeError
+            {
+                if v.len() != 32 {
+                    return Err(SerdeError::invalid_value(Unexpected::Bytes(v), &self))
+                }
+
+                let mut encoding = [0; 32];
+                encoding.as_mut().copy_from_slice(&v[0..32]);
+                let s = Scalar::from_bytes(&encoding);
+                if s.is_none().into() {
+                    Err(SerdeError::invalid_value(Unexpected::Bytes(&encoding), &self))
+                } else {
+                    Ok(s.unwrap())
+                }
+            }
+        }
+
+        let inner = deserializer.deserialize_bytes(PrimeFieldVisitor)?;
+        Ok(inner.into())
+    }
+}
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+impl From<Polynomial<Scalar>> for SerializablePolynomial<Scalar> {
+    fn from(inner: Polynomial<Scalar>) -> Self {
+        SerializablePolynomial {
+            degree: inner.degree,
+            // TODO: is there a way to do this without actually iterating?
+            // TODO: since 'x' is a newtype will this whole loop get compiled away?
+            coeffs: inner.coeffs.into_iter().map(|x| x.into()).collect()
+        }
+    }
+}
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+impl From<SerializablePolynomial<Scalar>> for Polynomial<Scalar> {
+    fn from(inner: SerializablePolynomial<Scalar>) -> Self {
+        Polynomial {
+            degree: inner.degree,
+            // TODO: is there a way to do this without actually iterating?
+            // TODO: since 'x' is a newtype will this whole loop get compiled away?
+            coeffs: inner.coeffs.into_iter().map(|x| x.into_inner()).collect()
+        }
+    }
+}
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+impl SerializablePolynomial<Scalar> {
+    pub fn from_inner_ref(inner: &Polynomial<Scalar>) -> Self {
+        SerializablePolynomial {
+            degree: inner.degree,
+            // TODO: is there a way to do this without actually iterating?
+            // TODO: since 'x' is a newtype will this whole loop get compiled away?
+            coeffs: inner.coeffs.iter().cloned().map(|x| x.into()).collect()
+        }
+    }
+
+    pub fn to_inner_ref(&self) -> Polynomial<Scalar> {
+        Polynomial {
+            degree: self.degree,
+            coeffs: self.coeffs.iter().cloned().map(|x| x.into_inner()).collect()
+        }
+    }
+}
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+impl Serialize for SerializablePolynomial<Scalar> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("SerializablePolynomial<bls12_381::Scalar>", 2)?;
+        state.serialize_field("degree", &self.degree)?;
+        state.serialize_field("coeffs", &self.coeffs)?;
+        state.end()
+    }
+}
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+impl<'de> Deserialize<'de> for SerializablePolynomial<Scalar> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field { Degree, Coeffs }
+
+        struct SerializablePolynomialVisitor;
+
+        impl<'de> Visitor<'de> for SerializablePolynomialVisitor {
+            type Value = SerializablePolynomial<Scalar>;
+
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("SerializablePolynomial<bls12_381::Scalar>")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<SerializablePolynomial<Scalar>, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+                let degree = seq.next_element()?
+                    .ok_or_else(|| SerdeError::invalid_length(0, &self))?;
+                let coeffs = seq.next_element()?
+                    .ok_or_else(|| SerdeError::invalid_length(1, &self))?;
+                Ok(SerializablePolynomial { degree, coeffs })
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<SerializablePolynomial<Scalar>, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut degree = None;
+                let mut coeffs = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Degree => {
+                            if degree.is_some() {
+                                return Err(SerdeError::duplicate_field("degree"));
+                            }
+                            degree = Some(map.next_value()?);
+                        }
+                        Field::Coeffs => {
+                            if coeffs.is_some() {
+                                return Err(SerdeError::duplicate_field("coeffs"));
+                            }
+                            coeffs = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let degree = degree.ok_or_else(|| SerdeError::missing_field("secs"))?;
+                let coeffs = coeffs.ok_or_else(|| SerdeError::missing_field("nanos"))?;
+                Ok(SerializablePolynomial { degree, coeffs })
+            }
+
+        }
+
+        const FIELDS: &'static [&'static str] = &["degree", "coeffs"];
+        deserializer.deserialize_struct("SerializablePolynomial<bls12_381::Scalar>", FIELDS, SerializablePolynomialVisitor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -774,5 +966,26 @@ mod tests {
         for (&x, &y) in xs.iter().zip(ys.iter()) {
             assert_eq!(interpolation.eval(x), y);
         }
+    }
+
+    #[cfg(feature = "serde_support")]
+    use bincode::{serialize, deserialize};
+
+    #[cfg(all(feature = "serde_support", feature = "b12_381"))]
+    #[test]
+    fn test_polynomial_serialization() {
+        let f = Polynomial::new(vec![
+            3.into(),
+            -Scalar::from(9)
+            -Scalar::from(5),
+            120.into(),
+            4.into(),
+        ]);
+        
+        let serable = SerializablePolynomial::from_inner_ref(&f);
+        let ser = serialize(&serable).unwrap();
+        let de: SerializablePolynomial<Scalar> = deserialize(ser.as_slice()).unwrap();
+        let f_de: Polynomial<Scalar> = de.into();
+        assert_eq!(f, f_de);
     }
 }

@@ -1,5 +1,5 @@
 use pairing::{
-    group::GroupEncoding,
+    group::{GroupEncoding, ff::PrimeField},
     Engine,
 };
 use std::{fmt, ops::Deref, marker::PhantomData};
@@ -7,6 +7,7 @@ use std::{fmt, ops::Deref, marker::PhantomData};
 #[cfg(feature = "serde_support")]
 use serde::{Serialize, Deserialize, Serializer, Deserializer, de::Visitor, de::Error as SerdeError, de::Unexpected};
 
+// TODO: why is this PartialEq derive not working?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 pub struct G1Affine<E: Engine>(E::G1Affine);
 
@@ -145,6 +146,7 @@ impl<E: Engine> Serialize for G2Affine<E> {
 }
 
 #[cfg(feature = "serde_support")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 struct G2AffineVisitor<E>(PhantomData<E>);
 
 #[cfg(feature = "serde_support")]
@@ -181,4 +183,46 @@ impl<'de, E: Engine> Deserialize<'de> for G2Affine<E> {
         
         Ok(G2Affine(inner))
     }
+}
+
+pub struct Scalar<E: Engine>(E::Fr);
+
+
+#[cfg(all(test, feature = "serde_support"))]
+mod tests {
+    use bincode::{serialize, deserialize};
+    use pairing::group::Curve;
+    use rand::{rngs::SmallRng, SeedableRng, Rng};
+    use super::{G1Affine, G2Affine};
+    use bls12_381::{Bls12, G1Affine as G, G2Affine as H, Scalar};
+
+    #[test]
+    fn test_group_elem_serde_support() {
+        let seed = [69; 32];
+        let mut rng = SmallRng::from_seed(seed);
+        let mut g = G::generator();
+        let mut h = H::generator();
+        let mut gs = vec![G1Affine::<Bls12>::from_inner(g)];
+        let mut hs = vec![G2Affine::<Bls12>::from_inner(h)];
+        for _ in 0..16 {
+            let multiplier: Scalar = rng.gen::<u64>().into();
+            g = (g * multiplier).to_affine();
+            h = (h * multiplier).to_affine();
+            gs.push(G1Affine::from_inner(g));
+            hs.push(G2Affine::from_inner(h));
+        }
+
+        for g in gs {
+            let serialized = serialize(&g).unwrap();
+            let deserialized: G1Affine<Bls12> = deserialize(serialized.as_slice()).unwrap();
+            assert_eq!(g.into_inner(), deserialized.into_inner())
+        }
+
+        for h in hs {
+            let serialized = serialize(&h).unwrap();
+            let deserialized: G2Affine<Bls12> = deserialize(serialized.as_slice()).unwrap();
+            assert_eq!(h.into_inner(), deserialized.into_inner())
+        }
+    }
+
 }
