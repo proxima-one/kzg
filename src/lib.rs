@@ -1,81 +1,54 @@
-use core::fmt::Debug;
+use std::fmt::Debug;
 use pairing::{
     group::{ff::Field, prime::PrimeCurveAffine, Curve},
     Engine,
 };
 use thiserror::Error;
 
+#[cfg(feature = "serde_support")]
+use serde::{Serialize, Deserialize};
+
+pub mod wrapper_types;
 pub mod utils;
 pub mod ft;
 pub mod polynomial;
 pub mod worker;
 
 use polynomial::{Polynomial, SubProductTree, op_tree};
+use wrapper_types::{G1Affine, G2Affine};
 
 /// parameters from tested setup
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
 pub struct KZGParams<E: Engine> {
     /// generator of g
-    g: E::G1Affine,
+    g: G1Affine<E>,
     /// generator of G2
-    h: E::G2Affine,
+    h: G2Affine<E>,
     /// g^alpha^1, g^alpha^2, ...
-    gs: Vec<E::G1Affine>,
+    gs: Vec<G1Affine<E>>,
     /// g^alpha^1, g^alpha^2, ...
-    hs: Vec<E::G2Affine>,
+    hs: Vec<G2Affine<E>>,
 }
 
-// the commitment - "C" in the paper. It's a single group element
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KZGCommitment<E: Engine>(E::G1Affine);
-impl<E: Engine> Copy for KZGCommitment<E> {}
-
-impl<E: Engine> KZGCommitment<E> {
-    pub fn into_inner(self) -> E::G1Affine {
-        self.0
-    }
-
-    pub fn inner(&self) -> &E::G1Affine {
-        &self.0
-    }
-
-    pub fn from_inner(inner: E::G1Affine) -> Self {
-        KZGCommitment(inner)
-    }
-}
-
-// A witness for a single element - "w_i" in the paper. It's a group element.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KZGWitness<E: Engine>(E::G1Affine);
-impl<E: Engine> Copy for KZGWitness<E> {}
-
-impl<E: Engine> KZGWitness<E> {
-    pub fn into_inner(self) -> E::G1Affine {
-        self.0
-    }
-
-    pub fn inner(&self) -> &E::G1Affine {
-        &self.0
-    }
-
-    pub fn from_inner(inner: E::G1Affine) -> Self {
-        KZGWitness(inner)
-    }
-}
+/// the commitment - "C" in the paper. It's a single group element
+pub type KZGCommitment<E> = G1Affine<E>;
+/// A witness for a single element - "w_i" in the paper. It's a group element.
+pub type KZGWitness<E> = G1Affine<E>;
 
 // A witness for a several elements - "w_B" in the paper. It's a single group element plus a polynomial
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KZGBatchWitness<E: Engine> {
     r: Polynomial<E::Fr>,
-    w: E::G1Affine,
+    w: G1Affine<E>,
 }
 
 impl<E: Engine> KZGBatchWitness<E> {
-    pub fn elem(self) -> E::G1Affine {
+    pub fn elem(self) -> G1Affine<E> {
         self.w
     }
 
-    pub fn elem_ref(&self) -> &E::G1Affine {
+    pub fn elem_ref(&self) -> &G1Affine<E> {
         &self.w
     }
 
@@ -83,7 +56,7 @@ impl<E: Engine> KZGBatchWitness<E> {
         &self.r
     }
 
-    pub fn from_inner(r: Polynomial<E::Fr>, w: E::G1Affine) -> Self {
+    pub fn from_inner(r: Polynomial<E::Fr>, w: G1Affine<E>) -> Self {
         KZGBatchWitness { r, w }
     }
 }
@@ -127,13 +100,13 @@ impl<'params, E: Engine> KZGProver<'params, E> {
     }
 
     pub fn commit(&mut self, polynomial: Polynomial<E::Fr>) -> KZGCommitment<E> {
-        let mut commitment = self.parameters.g * polynomial.coeffs[0];
+        let mut commitment = self.parameters.g.into_inner() * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
-            commitment += self.parameters.gs[i] * polynomial.coeffs[i + 1];
+            commitment += self.parameters.gs[i].into_inner() * polynomial.coeffs[i + 1];
         }
 
         self.polynomial = Some(polynomial);
-        let commitment = KZGCommitment(commitment.to_affine());
+        let commitment = G1Affine::from_inner(commitment.to_affine());
         self.commitment = Some(commitment);
         commitment
     }
@@ -175,12 +148,12 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                     // self.polynomial(point.y) != point.1
                     (_, Some(_)) => Err(KZGError::PointNotOnPolynomial),
                     (psi, None) => {
-                        let mut w = self.parameters.g * psi.coeffs[0];
+                        let mut w = self.parameters.g.into_inner() * psi.coeffs[0];
                         for i in 0..psi.degree() {
-                            w += self.parameters.gs[i] * psi.coeffs[i + 1];
+                            w += self.parameters.gs[i].into_inner() * psi.coeffs[i + 1];
                         }
 
-                        Ok(KZGWitness(w.to_affine()))
+                        Ok(G1Affine::from_inner(w.to_affine()))
                     }
                 }
             }
@@ -205,13 +178,13 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                 match rem {
                     Some(_) => Err(KZGError::PointNotOnPolynomial),
                     None => {
-                        let mut w = self.parameters.g * psi.coeffs[0];
+                        let mut w = self.parameters.g.into_inner() * psi.coeffs[0];
                         for i in 0..psi.degree() {
-                            w += self.parameters.gs[i] * psi.coeffs[i + 1];
+                            w += self.parameters.gs[i].into_inner() * psi.coeffs[i + 1];
                         }
                         Ok(KZGBatchWitness {
                             r: interpolation,
-                            w: w.to_affine(),
+                            w: G1Affine::from_inner(w.to_affine()),
                         })
                     }
                 }
@@ -230,12 +203,12 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
         commitment: &KZGCommitment<E>,
         polynomial: &Polynomial<E::Fr>,
     ) -> bool {
-        let mut check = self.parameters.g * polynomial.coeffs[0];
+        let mut check = self.parameters.g.into_inner() * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
-            check += self.parameters.gs[i] * polynomial.coeffs[i + 1];
+            check += self.parameters.gs[i].into_inner() * polynomial.coeffs[i + 1];
         }
 
-        check.to_affine() == commitment.0
+        check.to_affine() == commitment.into_inner()
     }
 
     pub fn verify_eval(
@@ -245,11 +218,11 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
         witness: &KZGWitness<E>,
     ) -> bool {
         let lhs = E::pairing(
-            &witness.0,
-            &(self.parameters.hs[0].to_curve() - self.parameters.h * x).to_affine(),
+            witness,
+            &(self.parameters.hs[0].to_curve() - self.parameters.h.into_inner() * x).to_affine(),
         );
         let rhs = E::pairing(
-            &(commitment.0.to_curve() - self.parameters.g * y).to_affine(),
+            &(commitment.to_curve() - self.parameters.g.into_inner() * y).to_affine(),
             &self.parameters.h,
         );
 
@@ -273,19 +246,19 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
             &|a, b| a.best_mul(&b),
         );
 
-        let mut hz = self.parameters.h * z.coeffs[0];
+        let mut hz = self.parameters.h.into_inner() * z.coeffs[0];
         for i in 0..z.degree() {
-            hz += self.parameters.hs[i] * z.coeffs[i + 1];
+            hz += self.parameters.hs[i].into_inner() * z.coeffs[i + 1];
         }
 
-        let mut gr = self.parameters.g * witness.r.coeffs[0];
+        let mut gr = self.parameters.g.into_inner() * witness.r.coeffs[0];
         for i in 0..witness.r.degree() {
-            gr += self.parameters.gs[i] * witness.r.coeffs[i + 1];
+            gr += self.parameters.gs[i].into_inner() * witness.r.coeffs[i + 1];
         }
 
         let lhs = E::pairing(&witness.w, &hz.to_affine());
         let rhs = E::pairing(
-            &(commitment.0.to_curve() - gr).to_affine(),
+            &(commitment.to_curve() - gr).to_affine(),
             &self.parameters.h,
         );
 
@@ -297,23 +270,25 @@ pub fn setup<E: Engine>(s: E::Fr, num_coeffs: usize) -> KZGParams<E> {
     let g = E::G1Affine::generator();
     let h = E::G2Affine::generator();
 
-    let mut gs = vec![g; num_coeffs];
-    let mut hs = vec![h; num_coeffs];
+    let mut gs = vec![G1Affine::from_inner(g); num_coeffs];
+    let mut hs = vec![G2Affine::from_inner(h); num_coeffs];
 
     let mut curr = g;
 
     for g in gs.iter_mut() {
-        *g = (curr * s).to_affine();
-        curr = *g;
+        let inner = (curr * s).to_affine();
+        *g = G1Affine::from_inner(inner);
+        curr = inner;
     }
 
     let mut curr = h;
     for h in hs.iter_mut() {
-        *h = (curr * s).to_affine();
-        curr = *h;
+        let inner = (curr * s).to_affine();
+        *h = G2Affine::from_inner(inner);
+        curr = inner;
     }
 
-    KZGParams { g, h, gs, hs }
+    KZGParams { g: G1Affine::from_inner(g), h: G2Affine::from_inner(h), gs, hs }
 }
 
 #[cfg(any(csprng_setup, test))]
