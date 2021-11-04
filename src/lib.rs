@@ -123,6 +123,10 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         self.commitment.as_ref()
     }
 
+    pub fn set_commitment(&mut self, commitment: KZGCommitment<E>) {
+        self.commitment = Some(commitment);
+    }
+
     pub fn has_commitment(&self) -> bool {
         self.commitment.is_some()
     }
