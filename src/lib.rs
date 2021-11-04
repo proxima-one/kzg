@@ -44,7 +44,7 @@ pub struct KZGBatchWitness<E: Engine> {
 }
 
 impl<E: Engine> KZGBatchWitness<E> {
-    pub fn elem(self) -> G1Affine<E> {
+    pub fn elem(&self) -> G1Affine<E> {
         self.w
     }
 
