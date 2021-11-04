@@ -506,14 +506,14 @@ impl<S: PrimeField> Mul<Polynomial<S>> for Polynomial<S> {
 
 #[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
 #[derive(Debug, Clone)]
-struct SerializablePolynomial<S: PrimeFieldBits> {
+pub struct SerializablePolynomial<S: PrimeFieldBits> {
     degree: usize,
     coeffs: Vec<SerializablePrimeField<S>>,
 }
 
 #[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
 #[derive(Debug, Clone)]
-struct SerializablePrimeField<S: PrimeField>(S);
+pub struct SerializablePrimeField<S: PrimeField>(S);
 
 #[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
 impl<S: PrimeField> From<S> for SerializablePrimeField<S> {
