@@ -123,8 +123,9 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         self.commitment.as_ref()
     }
 
-    pub fn set_commitment(&mut self, commitment: KZGCommitment<E>) {
+    pub fn set_commitment(&mut self, commitment: KZGCommitment<E>, polynomial: Polynomial<E::Fr>) {
         self.commitment = Some(commitment);
+        self.polynomial = Some(polynomial);
     }
 
     pub fn has_commitment(&self) -> bool {
