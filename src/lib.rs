@@ -167,16 +167,16 @@ impl<'params, E: Engine> KZGProver<'params, E> {
 
     pub fn create_witness_batched(
         &self,
-        points: &[(E::Fr, E::Fr)],
+        xs: &[E::Fr],
+        ys: &[E::Fr]
     ) -> Result<KZGBatchWitness<E>, KZGError> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
-                let (xs, ys): (Vec<E::Fr>, Vec<E::Fr>) = points.iter().cloned().unzip();
-                let tree = SubProductTree::new_from_points(xs.as_slice());
+                let tree = SubProductTree::new_from_points(xs);
 
                 let interpolation =
-                    Polynomial::lagrange_interpolation_with_tree(xs.as_slice(), ys.as_slice(), &tree);
+                    Polynomial::lagrange_interpolation_with_tree(xs, ys, &tree);
                
                 let numerator = polynomial - &interpolation;
                 let (psi, rem) = numerator.long_division(&tree.product);
@@ -236,15 +236,15 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
 
     pub fn verify_eval_batched(
         &self,
-        points: &[(E::Fr, E::Fr)],
+        xs: &[E::Fr],
         commitment: &KZGCommitment<E>,
         witness: &KZGBatchWitness<E>,
     ) -> bool {
         let z: Polynomial<E::Fr> = op_tree(
-            points.len(),
+            xs.len(),
             &|i| {
-                let mut coeffs = vec![-points[i].0, E::Fr::one()];
-                coeffs[0] = -points[i].0;
+                let mut coeffs = vec![-xs[i], E::Fr::one()];
+                coeffs[0] = -xs[i];
                 coeffs[1] = E::Fr::one();
                 Polynomial::new_from_coeffs(coeffs, 1)
             },
@@ -473,22 +473,26 @@ mod tests {
         let polynomial = random_polynomial(8, 15);
         let commitment = prover.commit(polynomial.clone());
 
-        let mut points: Vec<(Scalar, Scalar)> = Vec::with_capacity(8);
+        let mut xs: Vec<Scalar> = Vec::with_capacity(8);
+        let mut ys: Vec<Scalar> = Vec::with_capacity(8);
         for _ in 0..8 {
             let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
-            points.push((x, polynomial.eval(x)));
+            xs.push(x);
+            ys.push(polynomial.eval(x));
         }
 
-        let witness = prover.create_witness_batched(points.as_slice()).unwrap();
-        assert!(verifier.verify_eval_batched(points.as_slice(), &commitment, &witness));
+        let witness = prover.create_witness_batched(xs.as_slice(), ys.as_slice()).unwrap();
+        assert!(verifier.verify_eval_batched(xs.as_slice(), &commitment, &witness));
 
-        let mut other_points: Vec<(Scalar, Scalar)> = Vec::with_capacity(8);
+        let mut xs: Vec<Scalar> = Vec::with_capacity(8);
+        let mut ys: Vec<Scalar> = Vec::with_capacity(8);
         for _ in 0..8 {
             let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
-            other_points.push((x, polynomial.eval(x)));
+            xs.push(x);
+            ys.push(polynomial.eval(x));
         }
 
-        assert!(!verifier.verify_eval_batched(&other_points, &commitment, &witness))
+        assert!(!verifier.verify_eval_batched(&xs, &commitment, &witness))
     }
 
     #[test]
@@ -498,13 +502,15 @@ mod tests {
         let polynomial = random_polynomial(8, 15);
         let commitment = prover.commit(polynomial.clone());
 
-        let mut points: Vec<(Scalar, Scalar)> = Vec::with_capacity(polynomial.num_coeffs());
+        let mut xs: Vec<Scalar> = Vec::with_capacity(polynomial.num_coeffs());
+        let mut ys: Vec<Scalar> = Vec::with_capacity(polynomial.num_coeffs());
         for _ in 0..polynomial.num_coeffs() {
             let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
-            points.push((x, polynomial.eval(x)));
+            xs.push(x);
+            ys.push(polynomial.eval(x));
         }
 
-        let witness = prover.create_witness_batched(points.as_slice()).unwrap();
-        assert!(verifier.verify_eval_batched(points.as_slice(), &commitment, &witness));
+        let witness = prover.create_witness_batched(xs.as_slice(), ys.as_slice()).unwrap();
+        assert!(verifier.verify_eval_batched(xs.as_slice(), &commitment, &witness));
     }
 }

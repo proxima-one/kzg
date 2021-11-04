@@ -61,5 +61,5 @@ fn bench_poly_arithmetic<S: PrimeField, const NUM_COEFFS: usize>(c: &mut Criteri
     );
 }
 
-criterion_group!(poly_arithmetic, bench_poly_arithmetic<Scalar, 10>, bench_poly_arithmetic<Scalar, 50>, bench_poly_arithmetic<Scalar, 100>, bench_poly_arithmetic<Scalar, 200>);
+criterion_group!(poly_arithmetic, bench_poly_arithmetic<Scalar, 15>, bench_poly_arithmetic<Scalar, 63>, bench_poly_arithmetic<Scalar, 127>, bench_poly_arithmetic<Scalar, 255>, bench_poly_arithmetic<Scalar, 511>);
 criterion_main!(poly_arithmetic);

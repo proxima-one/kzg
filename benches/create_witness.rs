@@ -30,15 +30,17 @@ fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
         |b| b.iter(|| prover.create_witness(black_box((x, y))).unwrap()),
     );
 
-    let mut points = vec![(E::Fr::zero(), E::Fr::zero()); NUM_COEFFS - 1];
-    for i in 0..points.len() {
-        points[i].0 = E::Fr::random(&mut rng);
-        points[i].1 = polynomial.eval(points[i].0);
+    let mut xs = Vec::with_capacity(NUM_COEFFS - 1);
+    let mut ys = Vec::with_capacity(NUM_COEFFS - 1);
+    for _ in 0..NUM_COEFFS - 1 {
+        let x = E::Fr::random(&mut rng);
+        xs.push(x);
+        ys.push(polynomial.eval(x));
     }
 
     c.bench_function(
         format!("bench_create_witness_batched, degree {}", NUM_COEFFS - 1).as_str(),
-        |b| b.iter(|| prover.create_witness_batched(black_box(points.as_slice())).unwrap()),
+        |b| b.iter(|| prover.create_witness_batched(black_box(xs.as_slice()), black_box(ys.as_slice())).unwrap()),
     );
 }
 
