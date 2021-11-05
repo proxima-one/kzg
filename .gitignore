@@ -1,3 +1,4 @@
 /target
+/report
 Cargo.lock
 .DS_Store
