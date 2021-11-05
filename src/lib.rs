@@ -147,7 +147,7 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                 let mut dividend = polynomial.clone();
                 dividend.coeffs[0] -= y;
 
-                let mut divisor = Polynomial::new_from_coeffs(vec![-x, E::Fr::one()], 1);
+                let divisor = Polynomial::new_from_coeffs(vec![-x, E::Fr::one()], 1);
                 match dividend.long_division(&divisor) {
                     // by polynomial remainder theorem, if (x - point.x) does not divide self.polynomial, then
                     // self.polynomial(point.y) != point.1
