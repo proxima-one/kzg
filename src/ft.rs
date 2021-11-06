@@ -1,12 +1,12 @@
-use crate::polynomial::Polynomial;
-use crate::worker::Worker;
+use crate::utils::log2;
+use crate::polynomial::Polynomial ;
 use crate::KZGError;
 use pairing::{
-    group::ff::{Field, PrimeField},
-    Engine,
+    group::ff::{PrimeField},
 };
-use std::convert::TryFrom;
-use std::ops::{AddAssign, MulAssign, SubAssign};
+
+#[cfg(feature = "parallel")]
+use crate::utils::chunk_by_num_threads;
 
 pub struct EvaluationDomain<S: PrimeField> {
     coeffs: Vec<S>,
@@ -76,17 +76,20 @@ impl<S: PrimeField> EvaluationDomain<S> {
         })
     }
 
-    pub fn fft(&mut self, worker: &Worker) {
-        best_fft(&mut self.coeffs, worker, &self.omega, self.exp);
+    pub fn fft(&mut self) {
+        best_fft(&mut self.coeffs, &self.omega, self.exp);
     }
 
-    pub fn ifft(&mut self, worker: &Worker) {
-        best_fft(&mut self.coeffs, worker, &self.omegainv, self.exp);
+    pub fn ifft(&mut self) {
+        best_fft(&mut self.coeffs, &self.omegainv, self.exp);
 
-        worker.scope(self.coeffs.len(), |scope, chunk| {
+        #[cfg(feature = "parallel")]
+        rayon::scope(|scope| {
             let minv = self.minv;
 
-            for v in self.coeffs.chunks_mut(chunk) {
+            let chunk_size = chunk_by_num_threads(self.coeffs.len());
+
+            for v in self.coeffs.chunks_mut(chunk_size) {
                 scope.spawn(move |_scope| {
                     for v in v {
                         v.mul_assign(&minv);
@@ -94,13 +97,24 @@ impl<S: PrimeField> EvaluationDomain<S> {
                 });
             }
         });
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            let minv = self.minv;
+            for v in self.coeffs.iter_mut() {
+                v.mul_assign(&minv);
+            }
+        }
     }
 
-    pub fn distribute_powers(&mut self, worker: &Worker, g: S) {
-        worker.scope(self.coeffs.len(), |scope, chunk| {
-            for (i, v) in self.coeffs.chunks_mut(chunk).enumerate() {
+    pub fn distribute_powers(&mut self, g: S) {
+        #[cfg(feature = "parallel")]
+        rayon::scope(|scope| {
+            let chunk_size = chunk_by_num_threads(self.coeffs.len());
+
+            for (i, v) in self.coeffs.chunks_mut(chunk_size).enumerate() {
                 scope.spawn(move |_scope| {
-                    let mut u = g.pow_vartime(&[(i * chunk) as u64]);
+                    let mut u = g.pow_vartime(&[(i * chunk_size) as u64]);
                     for v in v.iter_mut() {
                         v.mul_assign(&u);
                         u.mul_assign(&g);
@@ -108,18 +122,27 @@ impl<S: PrimeField> EvaluationDomain<S> {
                 });
             }
         });
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            for (i, v) in self.coeffs.iter_mut().enumerate() {
+                let mut u = g.pow_vartime(&[i as u64]);
+                v.mul_assign(&u);
+                u.mul_assign(&g);
+            };
+        };
     }
 
-    pub fn coset_fft(&mut self, worker: &Worker) {
-        self.distribute_powers(worker, S::multiplicative_generator());
-        self.fft(worker);
+    pub fn coset_fft(&mut self) {
+        self.distribute_powers(S::multiplicative_generator());
+        self.fft();
     }
 
-    pub fn icoset_fft(&mut self, worker: &Worker) {
+    pub fn icoset_fft(&mut self) {
         let geninv = self.geninv;
 
-        self.ifft(worker);
-        self.distribute_powers(worker, geninv);
+        self.ifft();
+        self.distribute_powers(geninv);
     }
 
     /// This evaluates t(tau) for this domain, which is
@@ -134,11 +157,14 @@ impl<S: PrimeField> EvaluationDomain<S> {
     /// The target polynomial is the zero polynomial in our
     /// evaluation domain, so we must perform division over
     /// a coset.
-    pub fn divide_by_z_on_coset(&mut self, worker: &Worker) {
+    pub fn divide_by_z_on_coset(&mut self) {
         let i = self.z(&S::multiplicative_generator()).invert().unwrap();
 
-        worker.scope(self.coeffs.len(), |scope, chunk| {
-            for v in self.coeffs.chunks_mut(chunk) {
+        #[cfg(feature = "parallel")]
+        rayon::scope(|scope| {
+            let chunk_size = chunk_by_num_threads(self.coeffs.len());
+            
+            for v in self.coeffs.chunks_mut(chunk_size) {
                 scope.spawn(move |_scope| {
                     for v in v {
                         v.mul_assign(&i);
@@ -146,17 +172,27 @@ impl<S: PrimeField> EvaluationDomain<S> {
                 });
             }
         });
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            for mut v in self.coeffs.iter_mut() {
+                v.mul_assign(&i);
+            }
+        }
     }
 
     /// Perform O(n) multiplication of two polynomials in the domain.
-    pub fn mul_assign(&mut self, worker: &Worker, other: &EvaluationDomain<S>) {
+    pub fn mul_assign(&mut self, other: &EvaluationDomain<S>) {
         assert_eq!(self.coeffs.len(), other.coeffs.len());
 
-        worker.scope(self.coeffs.len(), |scope, chunk| {
+        #[cfg(feature = "parallel")]
+        rayon::scope(|scope| {
+            let chunk_size = chunk_by_num_threads(self.coeffs.len());
+
             for (a, b) in self
                 .coeffs
-                .chunks_mut(chunk)
-                .zip(other.coeffs.chunks(chunk))
+                .chunks_mut(chunk_size)
+                .zip(other.coeffs.chunks(chunk_size))
             {
                 scope.spawn(move |_scope| {
                     for (a, b) in a.iter_mut().zip(b.iter()) {
@@ -165,17 +201,25 @@ impl<S: PrimeField> EvaluationDomain<S> {
                 });
             }
         });
+
+        #[cfg(not(feature = "parallel"))]
+        for (a, b) in self.coeffs.iter_mut().zip(other.coeffs.iter()) {
+            a.mul_assign(b);
+        }
     }
 
     /// Perform O(n) subtraction of one polynomial from another in the domain.
-    pub fn sub_assign(&mut self, worker: &Worker, other: &EvaluationDomain<S>) {
+    pub fn sub_assign(&mut self, other: &EvaluationDomain<S>) {
         assert_eq!(self.coeffs.len(), other.coeffs.len());
 
-        worker.scope(self.coeffs.len(), |scope, chunk| {
+        #[cfg(feature = "parallel")]
+        rayon::scope(|scope| {
+            let chunk_size = chunk_by_num_threads(self.coeffs.len());
+
             for (a, b) in self
                 .coeffs
-                .chunks_mut(chunk)
-                .zip(other.coeffs.chunks(chunk))
+                .chunks_mut(chunk_size)
+                .zip(other.coeffs.chunks(chunk_size))
             {
                 scope.spawn(move |_scope| {
                     for (a, b) in a.iter_mut().zip(b.iter()) {
@@ -184,17 +228,31 @@ impl<S: PrimeField> EvaluationDomain<S> {
                 });
             }
         });
+
+        #[cfg(not(feature = "parallel"))]
+        for (a, b) in self
+            .coeffs
+            .iter_mut()
+            .zip(other.coeffs.iter()) {
+                a.sub_assign(b);
+            }
     }
 }
 
-fn best_fft<S: PrimeField>(a: &mut [S], worker: &Worker, omega: &S, log_n: u32) {
-    let log_cpus = worker.log_num_threads();
+fn best_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32) {
+    #[cfg(feature = "parallel")]
+    {
+        let log_cpus = log2(rayon::current_num_threads() as u64) as u32;
 
-    if log_n <= log_cpus {
-        serial_fft(a, omega, log_n);
-    } else {
-        parallel_fft(a, worker, omega, log_n, log_cpus);
+        if log_n <= log_cpus {
+            serial_fft(a, omega, log_n);
+        } else {
+            parallel_fft(a, omega, log_n, log_cpus);
+        }
     }
+
+    #[cfg(not(feature = "parallel"))]
+    serial_fft(a, omega, log_n);
 }
 
 #[allow(clippy::many_single_char_names)]
@@ -242,7 +300,8 @@ fn serial_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32) {
     }
 }
 
-fn parallel_fft<S: PrimeField>(a: &mut [S], worker: &Worker, omega: &S, log_n: u32, log_cpus: u32) {
+#[cfg(feature = "parallel")]
+fn parallel_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32, log_cpus: u32) {
     assert!(log_n >= log_cpus);
 
     let num_cpus = 1 << log_cpus;
@@ -250,7 +309,7 @@ fn parallel_fft<S: PrimeField>(a: &mut [S], worker: &Worker, omega: &S, log_n: u
     let mut tmp = vec![vec![S::zero(); 1 << log_new_n]; num_cpus];
     let new_omega = omega.pow_vartime(&[num_cpus as u64]);
 
-    worker.scope(0, |scope, _| {
+    rayon::scope(|scope| {
         let a = &*a;
 
         for (j, tmp) in tmp.iter_mut().enumerate() {
@@ -278,12 +337,13 @@ fn parallel_fft<S: PrimeField>(a: &mut [S], worker: &Worker, omega: &S, log_n: u
     });
 
     // TODO: does this hurt or help?
-    worker.scope(a.len(), |scope, chunk| {
+    rayon::scope(|scope| {
+        let chunk_size = chunk_by_num_threads(a.len());
         let tmp = &tmp;
 
-        for (idx, a) in a.chunks_mut(chunk).enumerate() {
+        for (idx, a) in a.chunks_mut(chunk_size).enumerate() {
             scope.spawn(move |_scope| {
-                let mut idx = idx * chunk;
+                let mut idx = idx * chunk_size;
                 let mask = (1 << log_cpus) - 1;
                 for a in a {
                     *a = tmp[idx & mask][idx >> log_cpus];
@@ -302,8 +362,6 @@ fn polynomial_arith() {
     use rand::RngCore;
 
     fn test_mul<S: PrimeField, R: RngCore>(mut rng: &mut R) {
-        let worker = Worker::new();
-
         for coeffs_a in vec![1, 5, 10, 50] {
             for coeffs_b in vec![1, 5, 10, 50] {
                 let a: Vec<_> = (0..coeffs_a).map(|_| S::random(&mut rng)).collect();
@@ -314,7 +372,7 @@ fn polynomial_arith() {
 
                 // naive evaluation
                 let naive = a.clone() * b.clone();
-                let fft = a.fft_mul(&b, &worker);
+                let fft = a.fft_mul(&b);
 
                 assert!(naive == fft);
             }
@@ -332,7 +390,6 @@ fn fft_composition() {
     use rand::RngCore;
 
     fn test_comp<S: PrimeField, R: RngCore>(mut rng: &mut R) {
-        let worker = Worker::new();
 
         for coeffs in 0..10 {
             let coeffs = 1 << coeffs;
@@ -343,17 +400,17 @@ fn fft_composition() {
             }
 
             let mut domain = EvaluationDomain::from_coeffs(v.clone()).unwrap();
-            domain.ifft(&worker);
-            domain.fft(&worker);
+            domain.ifft();
+            domain.fft();
             assert!(v == domain.coeffs);
-            domain.fft(&worker);
-            domain.ifft(&worker);
+            domain.fft();
+            domain.ifft();
             assert!(v == domain.coeffs);
-            domain.icoset_fft(&worker);
-            domain.coset_fft(&worker);
+            domain.icoset_fft();
+            domain.coset_fft();
             assert!(v == domain.coeffs);
-            domain.coset_fft(&worker);
-            domain.icoset_fft(&worker);
+            domain.coset_fft();
+            domain.icoset_fft();
             assert!(v == domain.coeffs);
         }
     }
@@ -363,6 +420,7 @@ fn fft_composition() {
     test_comp::<Fr, _>(rng);
 }
 
+#[cfg(feature = "parallel")]
 #[test]
 fn parallel_fft_consistency() {
     use bls12_381::Scalar as Fr;
@@ -370,7 +428,6 @@ fn parallel_fft_consistency() {
     use std::cmp::min;
 
     fn test_consistency<S: PrimeField, R: RngCore>(mut rng: &mut R) {
-        let worker = Worker::new();
 
         for _ in 0..5 {
             for log_d in 0..10 {
@@ -381,7 +438,7 @@ fn parallel_fft_consistency() {
                 let mut v2 = EvaluationDomain::from_coeffs(v1.coeffs.clone()).unwrap();
 
                 for log_cpus in log_d..min(log_d + 1, 3) {
-                    parallel_fft(&mut v1.coeffs, &worker, &v1.omega, log_d, log_cpus);
+                    parallel_fft(&mut v1.coeffs, &v1.omega, log_d, log_cpus);
                     serial_fft(&mut v2.coeffs, &v2.omega, log_d);
 
                     assert!(v1.coeffs == v2.coeffs);

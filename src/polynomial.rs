@@ -1,18 +1,18 @@
 use core::borrow::Borrow;
 use core::cmp::{Eq, PartialEq};
-use core::ops::{Add, AddAssign, Mul, Range, Sub, SubAssign};
-use std::fmt;
-use std::marker::PhantomData;
-use pairing::group::ff::{Field, PrimeField, PrimeFieldBits};
-use std::collections::HashMap;
+use core::ops::{Add, AddAssign, Mul, Sub, SubAssign};
+use pairing::group::ff::PrimeField;
 use std::iter::Iterator;
 
 #[cfg(feature = "serde_support")]
+use std::fmt;
+#[cfg(feature = "serde_support")]
 use serde::{Serialize, Deserialize, Serializer, Deserializer, ser::SerializeStruct, de::Unexpected, de::Visitor, de::Error as SerdeError, de::SeqAccess, de::MapAccess, self};
+#[cfg(feature = "serde_support")]
+use pairing::group::ff::PrimeFieldBits;
+
 
 use crate::ft::EvaluationDomain;
-use crate::utils::{log2_ceil, pad_to_power_of_two};
-use crate::worker::Worker;
 
 const FFT_MUL_THRESHOLD: usize = 128;
 
@@ -154,7 +154,7 @@ impl<S: PrimeField> Polynomial<S> {
         res
     }
 
-    pub fn fft_mul(&self, other: &Polynomial<S>, worker: &Worker) -> Polynomial<S> {
+    pub fn fft_mul(&self, other: &Polynomial<S>) -> Polynomial<S> {
         let n = self.num_coeffs();
         let k = other.num_coeffs();
         let mut lhs = self.coeffs.clone();
@@ -165,10 +165,10 @@ impl<S: PrimeField> Polynomial<S> {
         let mut lhs = EvaluationDomain::from_coeffs(lhs).unwrap();
         let mut rhs = EvaluationDomain::from_coeffs(rhs).unwrap();
 
-        lhs.fft(worker);
-        rhs.fft(worker);
-        lhs.mul_assign(worker, &rhs);
-        lhs.ifft(worker);
+        lhs.fft();
+        rhs.fft();
+        lhs.mul_assign(&rhs);
+        lhs.ifft();
         lhs.into()
     }
 
@@ -176,8 +176,7 @@ impl<S: PrimeField> Polynomial<S> {
         if self.degree() < FFT_MUL_THRESHOLD || other.degree() < FFT_MUL_THRESHOLD {
             self.clone() * other.clone()
         } else {
-            let worker = Worker::new();
-            self.fft_mul(&other, &worker)
+            self.fft_mul(&other)
         }
     }
 

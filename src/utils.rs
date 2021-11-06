@@ -36,3 +36,13 @@ pub fn pad_to_power_of_two<S: PrimeField>(xs: &[S]) -> Vec<S> {
     }
     xs
 }
+
+#[cfg(feature = "parallel")]
+pub fn chunk_by_num_threads(size: usize) -> usize {
+    let num_threads = rayon::current_num_threads();
+    if size < num_threads {
+        1
+    } else {
+        size / num_threads
+    }
+}

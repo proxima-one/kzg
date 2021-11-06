@@ -1,5 +1,5 @@
 use bls12_381::Scalar;
-use kzg::{polynomial::Polynomial, worker::Worker};
+use kzg::polynomial::Polynomial;
 use pairing::group::ff::{Field, PrimeField};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
@@ -32,12 +32,10 @@ fn bench_poly_arithmetic<S: PrimeField, const NUM_COEFFS: usize>(c: &mut Criteri
         },
     );
 
-    let worker = Worker::new();
-
     c.bench_function(
         format!("bench_mul_fft, degree {}", NUM_COEFFS - 1).as_str(),
         |b| {
-            b.iter(|| black_box(f.clone()).fft_mul(black_box(&g), &worker));
+            b.iter(|| black_box(f.clone()).fft_mul(black_box(&g)));
         },
     );
 

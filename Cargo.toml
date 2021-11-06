@@ -1,6 +1,6 @@
 [package]
 name = "kzg"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2018"
 license = "MIT"
 authors = [ "sladuca777@gmail.com" ]
@@ -16,6 +16,7 @@ debug = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 csprng_setup = ["rand"]
+parallel = ["rayon"]
 serde_support = ["serde"]
 b12_381 = ["bls12_381"]
 
@@ -25,6 +26,7 @@ thiserror = "1.0.26"
 rand = { version = "0.8.4", optional = true }
 serde = { version = "1", optional = true, features = ["derive"] }
 bls12_381 = { version = "0.6.0", optional = true }
+rayon = { version = "1.5.1", optional = true}
 
 [dev-dependencies]
 rand = { version = "0.8.4", features = ["small_rng"] }

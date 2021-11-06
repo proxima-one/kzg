@@ -12,7 +12,6 @@ pub mod wrapper_types;
 pub mod utils;
 pub mod ft;
 pub mod polynomial;
-pub mod worker;
 
 use polynomial::{Polynomial, SubProductTree, op_tree};
 use wrapper_types::{G1Affine, G2Affine};
