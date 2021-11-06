@@ -1,61 +1,57 @@
 use std::fmt::Debug;
-use pairing::{
-    group::{ff::Field, prime::PrimeCurveAffine, Curve},
-    Engine,
-};
+use blstrs::{G1Affine, G2Affine, Scalar, pairing};
+use pairing::group::{Curve, ff::Field, prime::PrimeCurveAffine};
 use thiserror::Error;
 
 #[cfg(feature = "serde_support")]
 use serde::{Serialize, Deserialize};
 
-pub mod wrapper_types;
 pub mod utils;
 pub mod ft;
 pub mod polynomial;
 
 use polynomial::{Polynomial, SubProductTree, op_tree};
-use wrapper_types::{G1Affine, G2Affine};
 
 /// parameters from tested setup
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
-pub struct KZGParams<E: Engine> {
+pub struct KZGParams {
     /// generator of g
-    g: G1Affine<E>,
+    g: G1Affine,
     /// generator of G2
-    h: G2Affine<E>,
+    h: G2Affine,
     /// g^alpha^1, g^alpha^2, ...
-    gs: Vec<G1Affine<E>>,
+    gs: Vec<G1Affine>,
     /// g^alpha^1, g^alpha^2, ...
-    hs: Vec<G2Affine<E>>,
+    hs: Vec<G2Affine>,
 }
 
 /// the commitment - "C" in the paper. It's a single group element
-pub type KZGCommitment<E> = G1Affine<E>;
+pub type KZGCommitment = G1Affine;
 /// A witness for a single element - "w_i" in the paper. It's a group element.
-pub type KZGWitness<E> = G1Affine<E>;
+pub type KZGWitness = G1Affine;
 
 // A witness for a several elements - "w_B" in the paper. It's a single group element plus a polynomial
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KZGBatchWitness<E: Engine> {
-    r: Polynomial<E::Fr>,
-    w: G1Affine<E>,
+pub struct KZGBatchWitness {
+    r: Polynomial,
+    w: G1Affine,
 }
 
-impl<E: Engine> KZGBatchWitness<E> {
-    pub fn elem(&self) -> G1Affine<E> {
+impl KZGBatchWitness {
+    pub fn elem(&self) -> G1Affine {
         self.w
     }
 
-    pub fn elem_ref(&self) -> &G1Affine<E> {
+    pub fn elem_ref(&self) -> &G1Affine {
         &self.w
     }
 
-    pub fn polynomial(&self) -> &Polynomial<E::Fr> {
+    pub fn polynomial(&self) -> &Polynomial {
         &self.r
     }
 
-    pub fn from_inner(r: Polynomial<E::Fr>, w: G1Affine<E>) -> Self {
+    pub fn from_inner(r: Polynomial, w: G1Affine) -> Self {
         KZGBatchWitness { r, w }
     }
 }
@@ -73,20 +69,20 @@ pub enum KZGError {
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGProver<'params, E: Engine> {
-    parameters: &'params KZGParams<E>,
-    polynomial: Option<Polynomial<E::Fr>>,
-    commitment: Option<KZGCommitment<E>>,
+pub struct KZGProver<'params> {
+    parameters: &'params KZGParams,
+    polynomial: Option<Polynomial>,
+    commitment: Option<KZGCommitment>,
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGVerifier<'params, E: Engine> {
-    parameters: &'params KZGParams<E>,
+pub struct KZGVerifier<'params> {
+    parameters: &'params KZGParams,
 }
 
-impl<'params, E: Engine> KZGProver<'params, E> {
+impl<'params> KZGProver<'params> {
     /// initializes `polynomial` to zero polynomial
-    pub fn new(parameters: &'params KZGParams<E>) -> Self {
+    pub fn new(parameters: &'params KZGParams) -> Self {
         Self {
             parameters,
             polynomial: None,
@@ -94,35 +90,35 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         }
     }
 
-    pub fn parameters(&self) -> &'params KZGParams<E> {
+    pub fn parameters(&self) -> &'params KZGParams {
         self.parameters
     }
 
-    pub fn commit(&mut self, polynomial: Polynomial<E::Fr>) -> KZGCommitment<E> {
-        let mut commitment = self.parameters.g.into_inner() * polynomial.coeffs[0];
+    pub fn commit(&mut self, polynomial: Polynomial) -> KZGCommitment {
+        let mut commitment = self.parameters.g * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
-            commitment += self.parameters.gs[i].into_inner() * polynomial.coeffs[i + 1];
+            commitment += self.parameters.gs[i] * polynomial.coeffs[i + 1];
         }
 
         self.polynomial = Some(polynomial);
-        let commitment = G1Affine::from_inner(commitment.to_affine());
+        let commitment = commitment.to_affine();
         self.commitment = Some(commitment);
         commitment
     }
 
-    pub fn open(&self) -> Result<Polynomial<E::Fr>, KZGError> {
+    pub fn open(&self) -> Result<Polynomial, KZGError> {
         self.polynomial.clone().ok_or(KZGError::NoPolynomial)
     }
 
-    pub fn commitment(&self) -> Option<KZGCommitment<E>> {
+    pub fn commitment(&self) -> Option<KZGCommitment> {
         self.commitment
     }
 
-    pub fn commitment_ref(&self) -> Option<&KZGCommitment<E>> {
+    pub fn commitment_ref(&self) -> Option<&KZGCommitment> {
         self.commitment.as_ref()
     }
 
-    pub fn set_commitment(&mut self, commitment: KZGCommitment<E>, polynomial: Polynomial<E::Fr>) {
+    pub fn set_commitment(&mut self, commitment: KZGCommitment, polynomial: Polynomial) {
         self.commitment = Some(commitment);
         self.polynomial = Some(polynomial);
     }
@@ -131,7 +127,7 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         self.commitment.is_some()
     }
 
-    pub fn polynomial(&self) -> Option<&Polynomial<E::Fr>> {
+    pub fn polynomial(&self) -> Option<&Polynomial> {
         self.polynomial.as_ref()
     }
 
@@ -139,25 +135,25 @@ impl<'params, E: Engine> KZGProver<'params, E> {
         self.polynomial.is_some()
     }
 
-    pub fn create_witness(&self, (x, y): (E::Fr, E::Fr)) -> Result<KZGWitness<E>, KZGError> {
+    pub fn create_witness(&self, (x, y): (Scalar, Scalar)) -> Result<KZGWitness, KZGError> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
                 let mut dividend = polynomial.clone();
                 dividend.coeffs[0] -= y;
 
-                let divisor = Polynomial::new_from_coeffs(vec![-x, E::Fr::one()], 1);
+                let divisor = Polynomial::new_from_coeffs(vec![-x, Scalar::one()], 1);
                 match dividend.long_division(&divisor) {
                     // by polynomial remainder theorem, if (x - point.x) does not divide self.polynomial, then
                     // self.polynomial(point.y) != point.1
                     (_, Some(_)) => Err(KZGError::PointNotOnPolynomial),
                     (psi, None) => {
-                        let mut w = self.parameters.g.into_inner() * psi.coeffs[0];
+                        let mut w = self.parameters.g * psi.coeffs[0];
                         for i in 0..psi.degree() {
-                            w += self.parameters.gs[i].into_inner() * psi.coeffs[i + 1];
+                            w += self.parameters.gs[i] * psi.coeffs[i + 1];
                         }
 
-                        Ok(G1Affine::from_inner(w.to_affine()))
+                        Ok(w.to_affine())
                     }
                 }
             }
@@ -166,9 +162,9 @@ impl<'params, E: Engine> KZGProver<'params, E> {
 
     pub fn create_witness_batched(
         &self,
-        xs: &[E::Fr],
-        ys: &[E::Fr]
-    ) -> Result<KZGBatchWitness<E>, KZGError> {
+        xs: &[Scalar],
+        ys: &[Scalar]
+    ) -> Result<KZGBatchWitness, KZGError> {
         match self.polynomial {
             None => Err(KZGError::NoPolynomial),
             Some(ref polynomial) => {
@@ -182,13 +178,13 @@ impl<'params, E: Engine> KZGProver<'params, E> {
                 match rem {
                     Some(_) => Err(KZGError::PointNotOnPolynomial),
                     None => {
-                        let mut w = self.parameters.g.into_inner() * psi.coeffs[0];
+                        let mut w = self.parameters.g * psi.coeffs[0];
                         for i in 0..psi.degree() {
-                            w += self.parameters.gs[i].into_inner() * psi.coeffs[i + 1];
+                            w += self.parameters.gs[i] * psi.coeffs[i + 1];
                         }
                         Ok(KZGBatchWitness {
                             r: interpolation,
-                            w: G1Affine::from_inner(w.to_affine()),
+                            w: w.to_affine(),
                         })
                     }
                 }
@@ -197,36 +193,36 @@ impl<'params, E: Engine> KZGProver<'params, E> {
     }
 }
 
-impl<'params, E: Engine> KZGVerifier<'params, E> {
-    pub fn new(parameters: &'params KZGParams<E>) -> Self {
+impl<'params> KZGVerifier<'params> {
+    pub fn new(parameters: &'params KZGParams) -> Self {
         KZGVerifier { parameters }
     }
 
     pub fn verify_poly(
         &self,
-        commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E::Fr>,
+        commitment: &KZGCommitment,
+        polynomial: &Polynomial,
     ) -> bool {
-        let mut check = self.parameters.g.into_inner() * polynomial.coeffs[0];
+        let mut check = self.parameters.g * polynomial.coeffs[0];
         for i in 0..polynomial.degree() {
-            check += self.parameters.gs[i].into_inner() * polynomial.coeffs[i + 1];
+            check += self.parameters.gs[i]* polynomial.coeffs[i + 1];
         }
 
-        check.to_affine() == commitment.into_inner()
+        check.to_affine() == *commitment
     }
 
     pub fn verify_eval(
         &self,
-        (x, y): (E::Fr, E::Fr),
-        commitment: &KZGCommitment<E>,
-        witness: &KZGWitness<E>,
+        (x, y): (Scalar, Scalar),
+        commitment: &KZGCommitment,
+        witness: &KZGWitness,
     ) -> bool {
-        let lhs = E::pairing(
+        let lhs = pairing(
             witness,
-            &(self.parameters.hs[0].to_curve() - self.parameters.h.into_inner() * x).to_affine(),
+            &(self.parameters.hs[0].to_curve() - self.parameters.h * x).to_affine(),
         );
-        let rhs = E::pairing(
-            &(commitment.to_curve() - self.parameters.g.into_inner() * y).to_affine(),
+        let rhs = pairing(
+            &(commitment.to_curve() - self.parameters.g * y).to_affine(),
             &self.parameters.h,
         );
 
@@ -235,33 +231,33 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
 
     pub fn verify_eval_batched(
         &self,
-        xs: &[E::Fr],
-        commitment: &KZGCommitment<E>,
-        witness: &KZGBatchWitness<E>,
+        xs: &[Scalar],
+        commitment: &KZGCommitment,
+        witness: &KZGBatchWitness,
     ) -> bool {
-        let z: Polynomial<E::Fr> = op_tree(
+        let z: Polynomial = op_tree(
             xs.len(),
             &|i| {
-                let mut coeffs = vec![-xs[i], E::Fr::one()];
+                let mut coeffs = vec![-xs[i], Scalar::one()];
                 coeffs[0] = -xs[i];
-                coeffs[1] = E::Fr::one();
+                coeffs[1] = Scalar::one();
                 Polynomial::new_from_coeffs(coeffs, 1)
             },
             &|a, b| a.best_mul(&b),
         );
 
-        let mut hz = self.parameters.h.into_inner() * z.coeffs[0];
+        let mut hz = self.parameters.h * z.coeffs[0];
         for i in 0..z.degree() {
-            hz += self.parameters.hs[i].into_inner() * z.coeffs[i + 1];
+            hz += self.parameters.hs[i] * z.coeffs[i + 1];
         }
 
-        let mut gr = self.parameters.g.into_inner() * witness.r.coeffs[0];
+        let mut gr = self.parameters.g * witness.r.coeffs[0];
         for i in 0..witness.r.degree() {
-            gr += self.parameters.gs[i].into_inner() * witness.r.coeffs[i + 1];
+            gr += self.parameters.gs[i] * witness.r.coeffs[i + 1];
         }
 
-        let lhs = E::pairing(&witness.w, &hz.to_affine());
-        let rhs = E::pairing(
+        let lhs = pairing(&witness.w, &hz.to_affine());
+        let rhs = pairing(
             &(commitment.to_curve() - gr).to_affine(),
             &self.parameters.h,
         );
@@ -270,46 +266,42 @@ impl<'params, E: Engine> KZGVerifier<'params, E> {
     }
 }
 
-pub fn setup<E: Engine>(s: E::Fr, num_coeffs: usize) -> KZGParams<E> {
-    let g = E::G1Affine::generator();
-    let h = E::G2Affine::generator();
+pub fn setup(s: Scalar, num_coeffs: usize) -> KZGParams {
+    let g = G1Affine::generator();
+    let h = G2Affine::generator();
 
-    let mut gs = vec![G1Affine::from_inner(g); num_coeffs];
-    let mut hs = vec![G2Affine::from_inner(h); num_coeffs];
+    let mut gs = vec![g; num_coeffs];
+    let mut hs = vec![h; num_coeffs];
 
     let mut curr = g;
 
     for g in gs.iter_mut() {
-        let inner = (curr * s).to_affine();
-        *g = G1Affine::from_inner(inner);
-        curr = inner;
+        *g =  (curr * s).to_affine();
+        curr = *g;
     }
 
     let mut curr = h;
     for h in hs.iter_mut() {
-        let inner = (curr * s).to_affine();
-        *h = G2Affine::from_inner(inner);
-        curr = inner;
+        *h =  (curr * s).to_affine();
+        curr = *h;
     }
 
-    KZGParams { g: G1Affine::from_inner(g), h: G2Affine::from_inner(h), gs, hs }
+    KZGParams { g, h, gs, hs }
 }
 
 #[cfg(any(csprng_setup, test))]
 use rand::random;
 
 #[cfg(any(csprng_setup, test))]
-pub fn csprng_setup<E: Engine>(num_coeffs: usize) -> KZGParams<E> {
-    let s: E::Fr = random::<u64>().into();
+pub fn csprng_setup(num_coeffs: usize) -> KZGParams {
+    let s: Scalar = random::<u64>().into();
     setup(s, num_coeffs)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bls12_381::{Bls12, Scalar};
     use lazy_static::lazy_static;
-    use pairing::group::ff::PrimeFieldBits;
     use rand::{rngs::SmallRng, Rng, SeedableRng};
     use std::sync::Mutex;
 
@@ -321,14 +313,14 @@ mod tests {
         static ref RNG_1: Mutex<SmallRng> = Mutex::new(SmallRng::from_seed(RNG_SEED_1));
     }
 
-    fn test_setup<E: Engine, const MAX_COEFFS: usize>() -> KZGParams<E> {
-        let s: E::Fr = RNG_0.lock().unwrap().gen::<u64>().into();
+    fn test_setup<const MAX_COEFFS: usize>() -> KZGParams {
+        let s: Scalar = RNG_0.lock().unwrap().gen::<u64>().into();
         setup(s, MAX_COEFFS)
     }
 
-    fn test_participants<'params, E: Engine>(
-        params: &'params KZGParams<E>,
-    ) -> (KZGProver<'params, E>, KZGVerifier<'params, E>) {
+    fn test_participants<'params>(
+        params: &'params KZGParams,
+    ) -> (KZGProver<'params>, KZGVerifier<'params>) {
         let prover = KZGProver::new(params);
         let verifier = KZGVerifier::new(params);
 
@@ -336,9 +328,9 @@ mod tests {
     }
 
     // never returns zero polynomial
-    fn random_polynomial<S: PrimeFieldBits>(min_coeffs: usize, max_coeffs: usize) -> Polynomial<S> {
+    fn random_polynomial(min_coeffs: usize, max_coeffs: usize) -> Polynomial {
         let num_coeffs = RNG_1.lock().unwrap().gen_range(min_coeffs..max_coeffs);
-        let mut coeffs = vec![S::zero(); max_coeffs];
+        let mut coeffs = vec![Scalar::zero(); max_coeffs];
 
         for i in 0..num_coeffs {
             coeffs[i] = RNG_1.lock().unwrap().gen::<u64>().into();
@@ -349,10 +341,10 @@ mod tests {
         poly
     }
 
-    fn assert_verify_poly<E: Engine + Debug>(
-        verifier: &KZGVerifier<E>,
-        commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E::Fr>,
+    fn assert_verify_poly(
+        verifier: &KZGVerifier,
+        commitment: &KZGCommitment,
+        polynomial: &Polynomial,
     ) {
         assert!(
             verifier.verify_poly(&commitment, &polynomial),
@@ -362,10 +354,10 @@ mod tests {
         );
     }
 
-    fn assert_verify_poly_fails<E: Engine + Debug>(
-        verifier: &KZGVerifier<E>,
-        commitment: &KZGCommitment<E>,
-        polynomial: &Polynomial<E::Fr>,
+    fn assert_verify_poly_fails(
+        verifier: &KZGVerifier,
+        commitment: &KZGCommitment,
+        polynomial: &Polynomial,
     ) {
         assert!(
             !verifier.verify_poly(&commitment, &polynomial),
@@ -375,11 +367,11 @@ mod tests {
         );
     }
 
-    fn assert_verify_eval<E: Engine + Debug>(
-        verifier: &KZGVerifier<E>,
-        point: (E::Fr, E::Fr),
-        commitment: &KZGCommitment<E>,
-        witness: &KZGWitness<E>,
+    fn assert_verify_eval(
+        verifier: &KZGVerifier,
+        point: (Scalar, Scalar),
+        commitment: &KZGCommitment,
+        witness: &KZGWitness,
     ) {
         assert!(
             verifier.verify_eval(point, &commitment, &witness),
@@ -390,18 +382,18 @@ mod tests {
         );
     }
 
-    fn assert_verify_eval_fails<E: Engine + Debug>(
-        verifier: &KZGVerifier<E>,
-        point: (E::Fr, E::Fr),
-        commitment: &KZGCommitment<E>,
-        witness: &KZGWitness<E>,
+    fn assert_verify_eval_fails(
+        verifier: &KZGVerifier,
+        point: (Scalar, Scalar),
+        commitment: &KZGCommitment,
+        witness: &KZGWitness,
     ) {
         assert!(!verifier.verify_eval(point, &commitment, &witness), "expected verify_eval to fail for for point {:#?}, commitment {:#?}, and witness {:#?}, but it didn't", point, commitment, witness);
     }
 
     #[test]
     fn test_basic() {
-        let params = test_setup::<Bls12, 10>();
+        let params = test_setup::<10>();
         let (mut prover, verifier) = test_participants(&params);
 
         let polynomial = random_polynomial(1, 10);
@@ -411,8 +403,8 @@ mod tests {
         assert_verify_poly_fails(&verifier, &commitment, &random_polynomial(1, 10));
     }
 
-    fn random_field_elem_neq<E: Engine>(val: E::Fr) -> E::Fr {
-        let mut v: E::Fr = RNG_1.lock().unwrap().gen::<u64>().into();
+    fn random_field_elem_neq(val: Scalar) -> Scalar {
+        let mut v: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
         while v == val {
             v = RNG_1.lock().unwrap().gen::<u64>().into();
         }
@@ -422,14 +414,14 @@ mod tests {
 
     #[test]
     fn test_modify_single_coeff() {
-        let params = test_setup::<Bls12, 8>();
+        let params = test_setup::<8>();
         let (mut prover, verifier) = test_participants(&params);
 
         let polynomial = random_polynomial(4, 8);
         let commitment = prover.commit(polynomial.clone());
 
         let mut modified_polynomial = polynomial.clone();
-        let new_coeff = random_field_elem_neq::<Bls12>(modified_polynomial.coeffs[2]);
+        let new_coeff = random_field_elem_neq(modified_polynomial.coeffs[2]);
         modified_polynomial.coeffs[2] = new_coeff;
 
         assert_verify_poly(&verifier, &commitment, &polynomial);
@@ -438,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_eval_basic() {
-        let params = test_setup::<Bls12, 13>();
+        let params = test_setup::<13>();
         let (mut prover, verifier) = test_participants(&params);
 
         let polynomial = random_polynomial(5, 13);
@@ -450,7 +442,7 @@ mod tests {
         let witness = prover.create_witness((x, y)).unwrap();
         assert_verify_eval(&verifier, (x, y), &commitment, &witness);
 
-        let y_prime = random_field_elem_neq::<Bls12>(y);
+        let y_prime = random_field_elem_neq(y);
         assert_verify_eval_fails(&verifier, (x, y_prime), &commitment, &witness);
 
         // test degree 1 edge case
@@ -467,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_eval_batched() {
-        let params = test_setup::<Bls12, 15>();
+        let params = test_setup::<15>();
         let (mut prover, verifier) = test_participants(&params);
         let polynomial = random_polynomial(8, 15);
         let commitment = prover.commit(polynomial.clone());
@@ -496,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_eval_batched_all_points() {
-        let params = test_setup::<Bls12, 15>();
+        let params = test_setup::<15>();
         let (mut prover, verifier) = test_participants(&params);
         let polynomial = random_polynomial(8, 15);
         let commitment = prover.commit(polynomial.clone());

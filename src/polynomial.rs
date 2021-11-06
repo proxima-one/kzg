@@ -1,28 +1,33 @@
-use core::borrow::Borrow;
-use core::cmp::{Eq, PartialEq};
-use core::ops::{Add, AddAssign, Mul, Sub, SubAssign};
-use pairing::group::ff::PrimeField;
+use std::borrow::Borrow;
+use std::cmp::{Eq, PartialEq};
+use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 use std::iter::Iterator;
+use blstrs::Scalar;
+use pairing::group::ff::Field;
 
 #[cfg(feature = "serde_support")]
-use std::fmt;
-#[cfg(feature = "serde_support")]
-use serde::{Serialize, Deserialize, Serializer, Deserializer, ser::SerializeStruct, de::Unexpected, de::Visitor, de::Error as SerdeError, de::SeqAccess, de::MapAccess, self};
-#[cfg(feature = "serde_support")]
-use pairing::group::ff::PrimeFieldBits;
+use serde::{Serialize, Deserialize};
 
 
 use crate::ft::EvaluationDomain;
 
 const FFT_MUL_THRESHOLD: usize = 128;
 
-#[derive(Clone, Debug)]
-pub struct Polynomial<S: PrimeField> {
+#[cfg(feature = "serde_support")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Polynomial {
     pub degree: usize,
-    pub coeffs: Vec<S>,
+    pub coeffs: Vec<Scalar>,
 }
 
-impl<S: PrimeField> PartialEq<Polynomial<S>> for Polynomial<S> {
+#[cfg(not(feature = "serde_support"))]
+#[derive(Clone, Debug)]
+pub struct Polynomial {
+    pub degree: usize,
+    pub coeffs: Vec<Scalar>,
+}
+
+impl PartialEq<Polynomial> for Polynomial {
     fn eq(&self, other: &Self) -> bool {
         if self.degree() != other.degree() {
             false
@@ -35,67 +40,67 @@ impl<S: PrimeField> PartialEq<Polynomial<S>> for Polynomial<S> {
     }
 }
 
-impl<S: PrimeField> Eq for Polynomial<S> {}
+impl Eq for Polynomial {}
 
-impl<S: PrimeField> Polynomial<S> {
+impl Polynomial {
     pub fn is_zero(&self) -> bool {
-        self.degree() == 0 && self.coeffs[0] == S::zero()
+        self.degree() == 0 && self.coeffs[0] == Scalar::zero()
     }
 
-    pub fn new_zero() -> Polynomial<S> {
+    pub fn new_zero() -> Polynomial {
         Polynomial {
             degree: 0,
-            coeffs: vec![S::zero()],
+            coeffs: vec![Scalar::zero()],
         }
     }
 
-    pub fn from_scalar(scalar: S) -> Polynomial<S> {
+    pub fn from_scalar(scalar: Scalar) -> Polynomial {
         Polynomial {
             degree: 0,
             coeffs: vec![scalar]
         }
     }
 
-    pub fn new_monic_of_degree(degree: usize) -> Polynomial<S> {
+    pub fn new_monic_of_degree(degree: usize) -> Polynomial {
         Polynomial {
             degree,
-            coeffs: vec![S::one(); degree + 1]
+            coeffs: vec![Scalar::one(); degree + 1]
         }
     }
 
-    pub fn new_single_term(degree: usize) -> Polynomial<S> {
-        let mut coeffs = vec![S::zero(); degree + 1];
-        coeffs[degree] = S::one();
+    pub fn new_single_term(degree: usize) -> Polynomial {
+        let mut coeffs = vec![Scalar::zero(); degree + 1];
+        coeffs[degree] = Scalar::one();
         Polynomial {
             degree,
             coeffs
         }
     }
 
-    pub fn new_zero_with_size(cap: usize) -> Polynomial<S> {
+    pub fn new_zero_with_size(cap: usize) -> Polynomial {
         Polynomial {
             degree: 0,
-            coeffs: vec![S::zero(); cap],
+            coeffs: vec![Scalar::zero(); cap],
         }
     }
 
-    pub fn new(coeffs: Vec<S>) -> Polynomial<S> {
+    pub fn new(coeffs: Vec<Scalar>) -> Polynomial {
         // figure out what the initial degree is
         let degree = Self::compute_degree(&coeffs, coeffs.len() - 1);
         Polynomial { degree, coeffs }
     }
 
     /// note: use this carefully, as setting the degree incorrect can lead to the degree being inconsistent
-    pub fn new_from_coeffs(coeffs: Vec<S>, degree: usize) -> Polynomial<S> {
+    pub fn new_from_coeffs(coeffs: Vec<Scalar>, degree: usize) -> Polynomial {
         Polynomial { degree, coeffs }
     }
 
-    pub fn compute_degree(coeffs: &Vec<S>, upper_bound: usize) -> usize {
+    pub fn compute_degree(coeffs: &Vec<Scalar>, upper_bound: usize) -> usize {
         let mut i = upper_bound;
         loop {
             if i == 0 {
                 break 0;
-            } else if coeffs[i] != S::zero() {
+            } else if coeffs[i] != Scalar::zero() {
                 break i;
             }
 
@@ -123,11 +128,11 @@ impl<S: PrimeField> Polynomial<S> {
         self.degree = degree;
     }
 
-    pub fn lead(&self) -> S {
+    pub fn lead(&self) -> Scalar {
         self.coeffs[self.degree]
     }
 
-    pub fn constant(&self) -> S {
+    pub fn constant(&self) -> Scalar {
         self.coeffs[0]
     }
 
@@ -139,11 +144,11 @@ impl<S: PrimeField> Polynomial<S> {
         self.degree
     }
 
-    pub fn iter_coeffs(&self) -> impl Iterator<Item = &S> {
+    pub fn iter_coeffs(&self) -> impl Iterator<Item = &Scalar> {
         self.coeffs.iter().take(self.num_coeffs())
     }
 
-    pub fn eval(&self, x: S) -> S {
+    pub fn eval(&self, x: Scalar) -> Scalar {
         let mut res = self.coeffs[self.degree()];
 
         for i in (0..self.degree()).rev() {
@@ -154,13 +159,13 @@ impl<S: PrimeField> Polynomial<S> {
         res
     }
 
-    pub fn fft_mul(&self, other: &Polynomial<S>) -> Polynomial<S> {
+    pub fn fft_mul(&self, other: &Polynomial) -> Polynomial {
         let n = self.num_coeffs();
         let k = other.num_coeffs();
         let mut lhs = self.coeffs.clone();
         let mut rhs = other.coeffs.clone();
-        lhs.resize(n + k, S::zero());
-        rhs.resize(n + k, S::zero());
+        lhs.resize(n + k, Scalar::zero());
+        rhs.resize(n + k, Scalar::zero());
 
         let mut lhs = EvaluationDomain::from_coeffs(lhs).unwrap();
         let mut rhs = EvaluationDomain::from_coeffs(rhs).unwrap();
@@ -172,7 +177,7 @@ impl<S: PrimeField> Polynomial<S> {
         lhs.into()
     }
 
-    pub fn best_mul(&self, other: &Polynomial<S>) -> Polynomial<S> {
+    pub fn best_mul(&self, other: &Polynomial) -> Polynomial {
         if self.degree() < FFT_MUL_THRESHOLD || other.degree() < FFT_MUL_THRESHOLD {
             self.clone() * other.clone()
         } else {
@@ -180,7 +185,7 @@ impl<S: PrimeField> Polynomial<S> {
         }
     }
 
-    pub fn long_division(&self, divisor: &Self) -> (Polynomial<S>, Option<Polynomial<S>>) {
+    pub fn long_division(&self, divisor: &Self) -> (Polynomial, Option<Polynomial>) {
         if self.is_zero() {
             (Self::new_zero(), None)
         } else if divisor.is_zero() {
@@ -190,7 +195,7 @@ impl<S: PrimeField> Polynomial<S> {
         } else {
             let mut remainder = self.clone();
             let mut quotient = Polynomial::new_from_coeffs(
-                vec![S::zero(); self.degree() - divisor.degree() + 1],
+                vec![Scalar::zero(); self.degree() - divisor.degree() + 1],
                 self.degree() - divisor.degree(),
             );
 
@@ -216,7 +221,7 @@ impl<S: PrimeField> Polynomial<S> {
         }
     }
 
-    pub fn fft_div(&self, divisor: &Self) -> (Polynomial<S>, Option<Polynomial<S>>) {
+    pub fn fft_div(&self, divisor: &Self) -> (Polynomial, Option<Polynomial>) {
         let m = self.degree();
         let n = divisor.degree();
 
@@ -243,7 +248,7 @@ impl<S: PrimeField> Polynomial<S> {
 
     /// computes the first degree + 1 terms of the formal series 1/f(x)
     /// panics if coeffs[0] == 0 or lead_coeff == 0
-    pub fn invert(&self, degree: usize) -> Polynomial<S> {
+    pub fn invert(&self, degree: usize) -> Polynomial {
         if degree == 0 {
             Polynomial::new_from_coeffs(vec![self.coeffs[0].invert().unwrap()], 0)
         } else {
@@ -254,7 +259,7 @@ impl<S: PrimeField> Polynomial<S> {
         }
     }
 
-    pub fn multi_eval(&self, xs: &[S]) -> Vec<S> {
+    pub fn multi_eval(&self, xs: &[Scalar]) -> Vec<Scalar> {
         assert!(xs.len() > self.degree());
         let tree = SubProductTree::new_from_points(xs);
         tree.eval(xs.as_ref(), self)
@@ -262,32 +267,32 @@ impl<S: PrimeField> Polynomial<S> {
 
     /// Performs lagrange interpolation on a pre-computed sub-product tree of xs.
     /// `tree` must be the same as the result when calling SubProductTree::new_from_points(xs)
-    pub fn lagrange_interpolation_with_tree(xs: &[S], ys: &[S], tree: &SubProductTree<S>) -> Polynomial<S> {
+    pub fn lagrange_interpolation_with_tree(xs: &[Scalar], ys: &[Scalar], tree: &SubProductTree) -> Polynomial {
         assert_eq!(xs.len(), ys.len());
 
         if xs.len() == 1 {
-            let coeffs = vec![ys[0] - xs[0], S::one()];
+            let coeffs = vec![ys[0] - xs[0], Scalar::one()];
             return Polynomial::new_from_coeffs(coeffs, 1);
         }
 
         let mut m_prime = tree.product.clone();
         for i in 1..m_prime.num_coeffs() {
-            m_prime.coeffs[i] *= S::from(i as u64);
+            m_prime.coeffs[i] *= Scalar::from(i as u64);
         }
         m_prime.coeffs.remove(0);
         m_prime.degree -= 1;
 
 
-        let cs: Vec<S> = m_prime.multi_eval(xs).iter().enumerate().map(|(i, c)| ys[i] * c.invert().unwrap()).collect();
+        let cs: Vec<Scalar> = m_prime.multi_eval(xs).iter().enumerate().map(|(i, c)| ys[i] * c.invert().unwrap()).collect();
 
         tree.linear_mod_combination(cs.as_slice())
     }
 
-    pub fn lagrange_interpolation(xs: &[S], ys: &[S]) -> Polynomial<S> {
+    pub fn lagrange_interpolation(xs: &[Scalar], ys: &[Scalar]) -> Polynomial {
         assert_eq!(xs.len(), ys.len());
 
         if xs.len() == 1 {
-            let coeffs = vec![ys[0] - xs[0], S::one()];
+            let coeffs = vec![ys[0] - xs[0], Scalar::one()];
             return Polynomial::new_from_coeffs(coeffs, 1);
         }
 
@@ -297,18 +302,18 @@ impl<S: PrimeField> Polynomial<S> {
 
         let mut m_prime = tree.product.clone();
         for i in 1..m_prime.num_coeffs() {
-            m_prime.coeffs[i] *= S::from(i as u64);
+            m_prime.coeffs[i] *= Scalar::from(i as u64);
         }
         m_prime.coeffs.remove(0);
         m_prime.degree -= 1;
 
 
-        let cs: Vec<S> = m_prime.multi_eval(xs).iter().enumerate().map(|(i, c)| ys[i] * c.invert().unwrap()).collect();
+        let cs: Vec<Scalar> = m_prime.multi_eval(xs).iter().enumerate().map(|(i, c)| ys[i] * c.invert().unwrap()).collect();
 
         tree.linear_mod_combination(cs.as_slice())
     }
 
-    pub fn scalar_multiplication(mut self, rhs: S) -> Polynomial<S> {
+    pub fn scalar_multiplication(mut self, rhs: Scalar) -> Polynomial {
         for i in 0..self.num_coeffs() {
             self.coeffs[i] *= rhs;
         }
@@ -316,17 +321,17 @@ impl<S: PrimeField> Polynomial<S> {
     }
 }
 
-pub struct SubProductTree<S: PrimeField> {
-    pub product: Polynomial<S>,
-    pub left: Option<Box<SubProductTree<S>>>,
-    pub right: Option<Box<SubProductTree<S>>>
+pub struct SubProductTree {
+    pub product: Polynomial,
+    pub left: Option<Box<SubProductTree>>,
+    pub right: Option<Box<SubProductTree>>
 }
 
-impl<S: PrimeField> SubProductTree<S> {
-    pub fn new_from_points(xs: &[S]) -> SubProductTree<S> {
+impl SubProductTree {
+    pub fn new_from_points(xs: &[Scalar]) -> SubProductTree {
         match xs.len() {
             1 => SubProductTree {
-                product: Polynomial::new_from_coeffs(vec![-xs[0], S::one()], 1),
+                product: Polynomial::new_from_coeffs(vec![-xs[0], Scalar::one()], 1),
                 left: None,
                 right: None
             },
@@ -342,7 +347,7 @@ impl<S: PrimeField> SubProductTree<S> {
         }
     }
 
-    pub fn eval(&self, xs: &[S], f: &Polynomial<S>) -> Vec<S> {
+    pub fn eval(&self, xs: &[Scalar], f: &Polynomial) -> Vec<Scalar> {
         let n = xs.len();
 
         if n == 1 {
@@ -364,7 +369,7 @@ impl<S: PrimeField> SubProductTree<S> {
         }
     }
 
-    pub fn linear_mod_combination(&self, cs: &[S]) -> Polynomial<S> {
+    pub fn linear_mod_combination(&self, cs: &[Scalar]) -> Polynomial {
         let n = cs.len();
 
         if n == 1 {
@@ -408,8 +413,8 @@ where
     op_tree_inner(0, size, get_elem, op)
 }
 
-impl<'a, S: PrimeField> Add for &'a Polynomial<S> {
-    type Output = Polynomial<S>;
+impl<'a> Add for &'a Polynomial {
+    type Output = Polynomial;
 
     fn add(self, rhs: Self) -> Self::Output {
         let (mut res, shorter) = if rhs.degree() > self.degree {
@@ -426,8 +431,8 @@ impl<'a, S: PrimeField> Add for &'a Polynomial<S> {
     }
 }
 
-impl<S: PrimeField> Add for Polynomial<S> {
-    type Output = Polynomial<S>;
+impl Add for Polynomial {
+    type Output = Polynomial;
 
     fn add(self, rhs: Self) -> Self::Output {
         let (mut res, shorter) = if rhs.degree() > self.degree() {
@@ -444,7 +449,7 @@ impl<S: PrimeField> Add for Polynomial<S> {
     }
 }
 
-impl<S: PrimeField, R: Borrow<Polynomial<S>>> AddAssign<R> for Polynomial<S> {
+impl<R: Borrow<Polynomial>> AddAssign<R> for Polynomial {
     fn add_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
         for i in 0..rhs.num_coeffs() {
@@ -457,13 +462,13 @@ impl<S: PrimeField, R: Borrow<Polynomial<S>>> AddAssign<R> for Polynomial<S> {
     }
 }
 
-impl<'a, S: PrimeField> Sub for &'a Polynomial<S> {
-    type Output = Polynomial<S>;
+impl<'a> Sub for &'a Polynomial {
+    type Output = Polynomial;
 
     fn sub(self, rhs: Self) -> Self::Output {
         let mut res = self.clone();
         if rhs.num_coeffs() > self.num_coeffs() {
-            res.coeffs.resize(rhs.num_coeffs(), S::zero());
+            res.coeffs.resize(rhs.num_coeffs(), Scalar::zero());
             res.degree = rhs.degree();
         }
 
@@ -476,7 +481,7 @@ impl<'a, S: PrimeField> Sub for &'a Polynomial<S> {
     }
 }
 
-impl<S: PrimeField, R: Borrow<Polynomial<S>>> SubAssign<R> for Polynomial<S> {
+impl<R: Borrow<Polynomial>> SubAssign<R> for Polynomial {
     fn sub_assign(&mut self, rhs: R) {
         let rhs = rhs.borrow();
         for i in 0..rhs.num_coeffs() {
@@ -487,8 +492,8 @@ impl<S: PrimeField, R: Borrow<Polynomial<S>>> SubAssign<R> for Polynomial<S> {
     }
 }
 
-impl<S: PrimeField> Mul<Polynomial<S>> for Polynomial<S> {
-    type Output = Polynomial<S>;
+impl Mul<Polynomial> for Polynomial {
+    type Output = Polynomial;
 
     fn mul(self, rhs: Self) -> Self::Output {
         let mut res = Polynomial::new_zero_with_size(self.degree() + rhs.degree() + 1);
@@ -503,209 +508,10 @@ impl<S: PrimeField> Mul<Polynomial<S>> for Polynomial<S> {
     }
 }
 
-#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
-#[derive(Debug, Clone)]
-pub struct SerializablePolynomial<S: PrimeFieldBits> {
-    degree: usize,
-    coeffs: Vec<SerializablePrimeField<S>>,
-}
-
-#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
-#[derive(Debug, Clone)]
-pub struct SerializablePrimeField<S: PrimeField>(S);
-
-#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
-impl<S: PrimeField> From<S> for SerializablePrimeField<S> {
-    fn from(s: S) -> SerializablePrimeField<S> {
-        SerializablePrimeField(s)
-    }
-}
-
-#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
-impl<S: PrimeField> SerializablePrimeField<S> {
-    fn into_inner(self) -> S {
-        self.0
-    }
-}
-
-#[cfg(all(feature = "serde_support", any(feature = "b12_381")))]
-impl<F: PrimeField> Serialize for SerializablePrimeField<F> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer
-    {
-        serializer.serialize_bytes(self.0.to_repr().as_ref())
-    }
-}
-
-
-#[cfg(all(feature = "serde_support", feature = "b12_381"))]
-use bls12_381::Scalar;
-
-#[cfg(all(feature = "serde_support", feature = "b12_381"))]
-impl<'de> Deserialize<'de> for SerializablePrimeField<Scalar> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>
-    {
-        struct PrimeFieldVisitor;
-
-        impl<'de> Visitor<'de> for PrimeFieldVisitor {
-            type Value = Scalar;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("canonical byte representation of a prime field element")
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: SerdeError
-            {
-                if v.len() != 32 {
-                    return Err(SerdeError::invalid_value(Unexpected::Bytes(v), &self))
-                }
-
-                let mut encoding = [0; 32];
-                encoding.as_mut().copy_from_slice(&v[0..32]);
-                let s = Scalar::from_bytes(&encoding);
-                if s.is_none().into() {
-                    Err(SerdeError::invalid_value(Unexpected::Bytes(&encoding), &self))
-                } else {
-                    Ok(s.unwrap())
-                }
-            }
-        }
-
-        let inner = deserializer.deserialize_bytes(PrimeFieldVisitor)?;
-        Ok(inner.into())
-    }
-}
-
-#[cfg(all(feature = "serde_support", feature = "b12_381"))]
-impl From<Polynomial<Scalar>> for SerializablePolynomial<Scalar> {
-    fn from(inner: Polynomial<Scalar>) -> Self {
-        SerializablePolynomial {
-            degree: inner.degree,
-            // TODO: is there a way to do this without actually iterating?
-            // TODO: since 'x' is a newtype will this whole loop get compiled away?
-            coeffs: inner.coeffs.into_iter().map(|x| x.into()).collect()
-        }
-    }
-}
-
-#[cfg(all(feature = "serde_support", feature = "b12_381"))]
-impl From<SerializablePolynomial<Scalar>> for Polynomial<Scalar> {
-    fn from(inner: SerializablePolynomial<Scalar>) -> Self {
-        Polynomial {
-            degree: inner.degree,
-            // TODO: is there a way to do this without actually iterating?
-            // TODO: since 'x' is a newtype will this whole loop get compiled away?
-            coeffs: inner.coeffs.into_iter().map(|x| x.into_inner()).collect()
-        }
-    }
-}
-
-#[cfg(all(feature = "serde_support", feature = "b12_381"))]
-impl SerializablePolynomial<Scalar> {
-    pub fn from_inner_ref(inner: &Polynomial<Scalar>) -> Self {
-        SerializablePolynomial {
-            degree: inner.degree,
-            // TODO: is there a way to do this without actually iterating?
-            // TODO: since 'x' is a newtype will this whole loop get compiled away?
-            coeffs: inner.coeffs.iter().cloned().map(|x| x.into()).collect()
-        }
-    }
-
-    pub fn to_inner_ref(&self) -> Polynomial<Scalar> {
-        Polynomial {
-            degree: self.degree,
-            coeffs: self.coeffs.iter().cloned().map(|x| x.into_inner()).collect()
-        }
-    }
-}
-
-#[cfg(all(feature = "serde_support", feature = "b12_381"))]
-impl Serialize for SerializablePolynomial<Scalar> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("SerializablePolynomial<bls12_381::Scalar>", 2)?;
-        state.serialize_field("degree", &self.degree)?;
-        state.serialize_field("coeffs", &self.coeffs)?;
-        state.end()
-    }
-}
-
-#[cfg(all(feature = "serde_support", feature = "b12_381"))]
-impl<'de> Deserialize<'de> for SerializablePolynomial<Scalar> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>
-    {
-        #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "lowercase")]
-        enum Field { Degree, Coeffs }
-
-        struct SerializablePolynomialVisitor;
-
-        impl<'de> Visitor<'de> for SerializablePolynomialVisitor {
-            type Value = SerializablePolynomial<Scalar>;
-
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("SerializablePolynomial<bls12_381::Scalar>")
-            }
-
-            fn visit_seq<V>(self, mut seq: V) -> Result<SerializablePolynomial<Scalar>, V::Error>
-            where
-                V: SeqAccess<'de>,
-            {
-                let degree = seq.next_element()?
-                    .ok_or_else(|| SerdeError::invalid_length(0, &self))?;
-                let coeffs = seq.next_element()?
-                    .ok_or_else(|| SerdeError::invalid_length(1, &self))?;
-                Ok(SerializablePolynomial { degree, coeffs })
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<SerializablePolynomial<Scalar>, V::Error>
-            where
-                V: MapAccess<'de>,
-            {
-                let mut degree = None;
-                let mut coeffs = None;
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Degree => {
-                            if degree.is_some() {
-                                return Err(SerdeError::duplicate_field("degree"));
-                            }
-                            degree = Some(map.next_value()?);
-                        }
-                        Field::Coeffs => {
-                            if coeffs.is_some() {
-                                return Err(SerdeError::duplicate_field("coeffs"));
-                            }
-                            coeffs = Some(map.next_value()?);
-                        }
-                    }
-                }
-                let degree = degree.ok_or_else(|| SerdeError::missing_field("secs"))?;
-                let coeffs = coeffs.ok_or_else(|| SerdeError::missing_field("nanos"))?;
-                Ok(SerializablePolynomial { degree, coeffs })
-            }
-
-        }
-
-        const FIELDS: &'static [&'static str] = &["degree", "coeffs"];
-        deserializer.deserialize_struct("SerializablePolynomial<bls12_381::Scalar>", FIELDS, SerializablePolynomialVisitor)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bls12_381::{Bls12, Scalar};
+    use blstrs::Scalar;
 
     #[test]
     fn test_long_division() {
@@ -897,7 +703,7 @@ mod tests {
         assert_eq!(polynomial.eval(5.into()), 3834.into());
     }
 
-    fn verify_tree(tree: &SubProductTree<Scalar>) {
+    fn verify_tree(tree: &SubProductTree) {
         if tree.left.is_some() && tree.right.is_some() {
             assert!(
                 tree.product == tree.left.as_ref().unwrap().product.best_mul(&tree.right.as_ref().unwrap().product)
@@ -919,7 +725,7 @@ mod tests {
 
     #[test]
     fn test_fast_multi_eval() {
-        let polynomial: Polynomial<Scalar> = Polynomial::new(
+        let polynomial = Polynomial::new(
             vec![2, 5, 7, 90, 111]
                 .into_iter()
                 .map(|x| x.into())

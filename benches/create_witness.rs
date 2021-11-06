@@ -1,20 +1,20 @@
-use bls12_381::Bls12;
+use blstrs::Scalar; 
 use kzg::polynomial::Polynomial;
 use kzg::{setup, KZGParams, KZGProver};
-use pairing::{group::ff::Field, Engine};
+use pairing::{group::ff::Field};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-pub fn csprng_setup<E: Engine, const MAX_COEFFS: usize>() -> KZGParams<E> {
-    let s: E::Fr = rand::random::<u64>().into();
+pub fn csprng_setup<const MAX_COEFFS: usize>() -> KZGParams {
+    let s: Scalar = rand::random::<u64>().into();
     setup(s, MAX_COEFFS)
 }
 
-fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
-    let params = csprng_setup::<E, NUM_COEFFS>();
+fn bench_create_witness<const NUM_COEFFS: usize>(c: &mut Criterion) {
+    let params = csprng_setup::<NUM_COEFFS>();
     let mut rng = SmallRng::from_seed([42; 32]);
-    let mut coeffs = vec![E::Fr::zero(); NUM_COEFFS];
+    let mut coeffs = vec![Scalar::zero(); NUM_COEFFS];
     for i in 0..NUM_COEFFS {
         coeffs[i] = rng.gen::<u64>().into();
     }
@@ -22,7 +22,7 @@ fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     let mut prover = KZGProver::new(&params);
     let _commitment = prover.commit(polynomial.clone());
 
-    let x: E::Fr = E::Fr::random(&mut rng);
+    let x: Scalar = Scalar::random(&mut rng);
     let y = polynomial.eval(x);
 
     c.bench_function(
@@ -33,7 +33,7 @@ fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     let mut xs = Vec::with_capacity(NUM_COEFFS - 1);
     let mut ys = Vec::with_capacity(NUM_COEFFS - 1);
     for _ in 0..NUM_COEFFS - 1 {
-        let x = E::Fr::random(&mut rng);
+        let x = Scalar::random(&mut rng);
         xs.push(x);
         ys.push(polynomial.eval(x));
     }
@@ -44,5 +44,5 @@ fn bench_create_witness<E: Engine, const NUM_COEFFS: usize>(c: &mut Criterion) {
     );
 }
 
-criterion_group!(create_witness, bench_create_witness<Bls12, 10>, bench_create_witness<Bls12, 50>, bench_create_witness<Bls12, 100>, bench_create_witness<Bls12, 200>);
+criterion_group!(create_witness, bench_create_witness<10>, bench_create_witness<50>, bench_create_witness<100>, bench_create_witness<200>);
 criterion_main!(create_witness);

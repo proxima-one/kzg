@@ -1,22 +1,22 @@
-use bls12_381::Scalar;
+use blstrs::Scalar;
 use kzg::polynomial::Polynomial;
-use pairing::group::ff::{Field, PrimeField};
+use pairing::group::ff::Field;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-fn random_polynomial<S: PrimeField>(rng: &mut SmallRng, n: usize) -> Polynomial<S> {
-    let mut coeffs = vec![S::zero(); n];
+fn random_polynomial(rng: &mut SmallRng, n: usize) -> Polynomial {
+    let mut coeffs = vec![Scalar::zero(); n];
     for i in 0..n {
         coeffs[i] = rng.gen::<u64>().into();
     }
     Polynomial::new(coeffs)
 }
 
-fn bench_poly_arithmetic<S: PrimeField, const NUM_COEFFS: usize>(c: &mut Criterion) {
+fn bench_poly_arithmetic<const NUM_COEFFS: usize>(c: &mut Criterion) {
     let mut rng = SmallRng::from_seed([NUM_COEFFS as u8; 32]);
-    let f = random_polynomial::<S>(&mut rng, NUM_COEFFS);
-    let g = random_polynomial::<S>(&mut rng, NUM_COEFFS);
+    let f = random_polynomial(&mut rng, NUM_COEFFS);
+    let g = random_polynomial(&mut rng, NUM_COEFFS);
 
     c.bench_function(
         format!("bench_add, degree {}", NUM_COEFFS - 1).as_str(),
@@ -39,7 +39,7 @@ fn bench_poly_arithmetic<S: PrimeField, const NUM_COEFFS: usize>(c: &mut Criteri
         },
     );
 
-    let g = random_polynomial::<S>(&mut rng, 2);
+    let g = random_polynomial(&mut rng, 2);
 
     c.bench_function(
         format!("bench_long_division, degree {}", NUM_COEFFS - 1).as_str(),
@@ -59,5 +59,5 @@ fn bench_poly_arithmetic<S: PrimeField, const NUM_COEFFS: usize>(c: &mut Criteri
     );
 }
 
-criterion_group!(poly_arithmetic, bench_poly_arithmetic<Scalar, 15>, bench_poly_arithmetic<Scalar, 63>, bench_poly_arithmetic<Scalar, 127>, bench_poly_arithmetic<Scalar, 255>, bench_poly_arithmetic<Scalar, 511>);
+criterion_group!(poly_arithmetic, bench_poly_arithmetic<16>, bench_poly_arithmetic<64>, bench_poly_arithmetic<128>, bench_poly_arithmetic<256>, bench_poly_arithmetic<512>);
 criterion_main!(poly_arithmetic);
