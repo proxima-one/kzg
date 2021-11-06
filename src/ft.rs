@@ -1,46 +1,50 @@
-use crate::utils::log2;
+use std::ops::{MulAssign, SubAssign, AddAssign};
+
 use crate::polynomial::Polynomial ;
 use crate::KZGError;
-use pairing::{
-    group::ff::{PrimeField},
-};
+use blstrs::Scalar;
+use pairing::group::ff::Field;
+use pairing::group::ff::PrimeField;
 
 #[cfg(feature = "parallel")]
 use crate::utils::chunk_by_num_threads;
+#[cfg(feature = "parallel")]
+use crate::utils::log2;
 
-pub struct EvaluationDomain<S: PrimeField> {
-    coeffs: Vec<S>,
+#[derive(Debug, Clone)]
+pub struct EvaluationDomain {
+    coeffs: Vec<Scalar>,
     exp: u32,
-    omega: S,
-    omegainv: S,
-    geninv: S,
-    minv: S,
+    omega: Scalar,
+    omegainv: Scalar,
+    geninv: Scalar,
+    minv: Scalar,
 }
 
-impl<S: PrimeField> From<EvaluationDomain<S>> for Polynomial<S> {
-    fn from(domain: EvaluationDomain<S>) -> Polynomial<S> {
+impl From<EvaluationDomain> for Polynomial {
+    fn from(domain: EvaluationDomain) -> Polynomial {
         Polynomial::new(domain.coeffs)
     }
 }
 
-impl<S: PrimeField> AsRef<[S]> for EvaluationDomain<S> {
-    fn as_ref(&self) -> &[S] {
+impl AsRef<[Scalar]> for EvaluationDomain {
+    fn as_ref(&self) -> &[Scalar] {
         &self.coeffs
     }
 }
 
-impl<S: PrimeField> AsMut<[S]> for EvaluationDomain<S> {
-    fn as_mut(&mut self) -> &mut [S] {
+impl AsMut<[Scalar]> for EvaluationDomain {
+    fn as_mut(&mut self) -> &mut [Scalar] {
         &mut self.coeffs
     }
 }
 
-impl<S: PrimeField> EvaluationDomain<S> {
-    pub fn into_coeffs(self) -> Vec<S> {
+impl EvaluationDomain {
+    pub fn into_coeffs(self) -> Vec<Scalar> {
         self.coeffs
     }
 
-    pub fn from_coeffs(mut coeffs: Vec<S>) -> Result<EvaluationDomain<S>, KZGError> {
+    pub fn from_coeffs(mut coeffs: Vec<Scalar>) -> Result<EvaluationDomain, KZGError> {
         // Compute the size of our evaluation domain
         let mut m = 1;
         let mut exp = 0;
@@ -52,27 +56,27 @@ impl<S: PrimeField> EvaluationDomain<S> {
 
             // The pairing-friendly curve may not be able to support
             // large enough (radix2) evaluation domains.
-            if exp >= S::S {
+            if exp >= Scalar::S {
                 return Err(KZGError::PolynomialDegreeTooLarge);
             }
         }
 
         // Compute omega, the 2^exp primitive root of unity
-        let mut omega = S::root_of_unity();
-        for _ in exp..S::S {
+        let mut omega = Scalar::root_of_unity();
+        for _ in exp..Scalar::S {
             omega = omega.square();
         }
 
         // Extend the coeffs vector with zeroes if necessary
-        coeffs.resize(m, S::zero());
+        coeffs.resize(m, Scalar::zero());
 
         Ok(EvaluationDomain {
             coeffs,
             exp,
             omega,
             omegainv: omega.invert().unwrap(),
-            geninv: S::multiplicative_generator().invert().unwrap(),
-            minv: S::from(m as u64).invert().unwrap(),
+            geninv: Scalar::multiplicative_generator().invert().unwrap(),
+            minv: Scalar::from(m as u64).invert().unwrap(),
         })
     }
 
@@ -107,7 +111,7 @@ impl<S: PrimeField> EvaluationDomain<S> {
         }
     }
 
-    pub fn distribute_powers(&mut self, g: S) {
+    pub fn distribute_powers(&mut self, g: Scalar) {
         #[cfg(feature = "parallel")]
         rayon::scope(|scope| {
             let chunk_size = chunk_by_num_threads(self.coeffs.len());
@@ -134,7 +138,7 @@ impl<S: PrimeField> EvaluationDomain<S> {
     }
 
     pub fn coset_fft(&mut self) {
-        self.distribute_powers(S::multiplicative_generator());
+        self.distribute_powers(Scalar::multiplicative_generator());
         self.fft();
     }
 
@@ -147,9 +151,9 @@ impl<S: PrimeField> EvaluationDomain<S> {
 
     /// This evaluates t(tau) for this domain, which is
     /// tau^m - 1 for these radix-2 domains.
-    pub fn z(&self, tau: &S) -> S {
+    pub fn z(&self, tau: &Scalar) -> Scalar {
         let mut tmp = tau.pow_vartime(&[self.coeffs.len() as u64]);
-        tmp.sub_assign(&S::one());
+        tmp.sub_assign(&Scalar::one());
 
         tmp
     }
@@ -158,7 +162,7 @@ impl<S: PrimeField> EvaluationDomain<S> {
     /// evaluation domain, so we must perform division over
     /// a coset.
     pub fn divide_by_z_on_coset(&mut self) {
-        let i = self.z(&S::multiplicative_generator()).invert().unwrap();
+        let i = self.z(&Scalar::multiplicative_generator()).invert().unwrap();
 
         #[cfg(feature = "parallel")]
         rayon::scope(|scope| {
@@ -175,14 +179,14 @@ impl<S: PrimeField> EvaluationDomain<S> {
 
         #[cfg(not(feature = "parallel"))]
         {
-            for mut v in self.coeffs.iter_mut() {
+            for v in self.coeffs.iter_mut() {
                 v.mul_assign(&i);
             }
         }
     }
 
     /// Perform O(n) multiplication of two polynomials in the domain.
-    pub fn mul_assign(&mut self, other: &EvaluationDomain<S>) {
+    pub fn mul_assign(&mut self, other: &EvaluationDomain) {
         assert_eq!(self.coeffs.len(), other.coeffs.len());
 
         #[cfg(feature = "parallel")]
@@ -209,7 +213,7 @@ impl<S: PrimeField> EvaluationDomain<S> {
     }
 
     /// Perform O(n) subtraction of one polynomial from another in the domain.
-    pub fn sub_assign(&mut self, other: &EvaluationDomain<S>) {
+    pub fn sub_assign(&mut self, other: &EvaluationDomain) {
         assert_eq!(self.coeffs.len(), other.coeffs.len());
 
         #[cfg(feature = "parallel")]
@@ -239,7 +243,7 @@ impl<S: PrimeField> EvaluationDomain<S> {
     }
 }
 
-fn best_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32) {
+fn best_fft(a: &mut [Scalar], omega: &Scalar, log_n: u32) {
     #[cfg(feature = "parallel")]
     {
         let log_cpus = log2(rayon::current_num_threads() as u64) as u32;
@@ -256,7 +260,7 @@ fn best_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32) {
 }
 
 #[allow(clippy::many_single_char_names)]
-fn serial_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32) {
+fn serial_fft(a: &mut [Scalar], omega: &Scalar, log_n: u32) {
     fn bitreverse(mut n: u32, l: u32) -> u32 {
         let mut r = 0;
         for _ in 0..l {
@@ -282,7 +286,7 @@ fn serial_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32) {
 
         let mut k = 0;
         while k < n {
-            let mut w = S::one();
+            let mut w = Scalar::one();
             for j in 0..m {
                 let mut t = a[(k + j + m) as usize];
                 t.mul_assign(&w);
@@ -301,12 +305,12 @@ fn serial_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32) {
 }
 
 #[cfg(feature = "parallel")]
-fn parallel_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32, log_cpus: u32) {
+fn parallel_fft(a: &mut [Scalar], omega: &Scalar, log_n: u32, log_cpus: u32) {
     assert!(log_n >= log_cpus);
 
     let num_cpus = 1 << log_cpus;
     let log_new_n = log_n - log_cpus;
-    let mut tmp = vec![vec![S::zero(); 1 << log_new_n]; num_cpus];
+    let mut tmp = vec![vec![Scalar::zero(); 1 << log_new_n]; num_cpus];
     let new_omega = omega.pow_vartime(&[num_cpus as u64]);
 
     rayon::scope(|scope| {
@@ -318,7 +322,7 @@ fn parallel_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32, log_cpus: u32
                 let omega_j = omega.pow_vartime(&[j as u64]);
                 let omega_step = omega.pow_vartime(&[(j as u64) << log_new_n]);
 
-                let mut elt = S::one();
+                let mut elt = Scalar::one();
                 for (i, tmp) in tmp.iter_mut().enumerate() {
                     for s in 0..num_cpus {
                         let idx = (i + (s << log_new_n)) % (1 << log_n);
@@ -354,18 +358,34 @@ fn parallel_fft<S: PrimeField>(a: &mut [S], omega: &S, log_n: u32, log_cpus: u32
     });
 }
 
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+use crate::wrapper_types::SerializablePrimeField;
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+use bls12_381::Scalar;
+
+#[cfg(all(feature = "serde_support", feature = "b12_381"))]
+#[derive(Serialize, Deserialize)]
+pub struct SerializableEvaluationDomain  {
+    coeffs: Vec<SerializablePrimeField<Scalar>>,
+    exp: u32,
+    omega: SerializablePrimeField<Scalar>,
+    omegainv: SerializablePrimeField<Scalar>,
+    geninv: SerializablePrimeField<Scalar>,
+    minv: SerializablePrimeField<Scalar>,
+}
+
 // Test multiplying various (low degree) polynomials together and
 // comparing with naive evaluations.
 #[test]
 fn polynomial_arith() {
-    use bls12_381::Scalar as Fr;
     use rand::RngCore;
 
-    fn test_mul<S: PrimeField, R: RngCore>(mut rng: &mut R) {
+    fn test_mul<R: RngCore>(mut rng: &mut R) {
         for coeffs_a in vec![1, 5, 10, 50] {
             for coeffs_b in vec![1, 5, 10, 50] {
-                let a: Vec<_> = (0..coeffs_a).map(|_| S::random(&mut rng)).collect();
-                let b: Vec<_> = (0..coeffs_b).map(|_| S::random(&mut rng)).collect();
+                let a: Vec<_> = (0..coeffs_a).map(|_| Scalar::random(&mut rng)).collect();
+                let b: Vec<_> = (0..coeffs_b).map(|_| Scalar::random(&mut rng)).collect();
 
                 let a = Polynomial::new_from_coeffs(a, coeffs_a - 1);
                 let b = Polynomial::new_from_coeffs(b, coeffs_b - 1);
@@ -381,22 +401,21 @@ fn polynomial_arith() {
 
     let rng = &mut rand::thread_rng();
 
-    test_mul::<Fr, _>(rng);
+    test_mul(rng);
 }
 
 #[test]
 fn fft_composition() {
-    use bls12_381::Scalar as Fr;
     use rand::RngCore;
 
-    fn test_comp<S: PrimeField, R: RngCore>(mut rng: &mut R) {
+    fn test_comp<R: RngCore>(mut rng: &mut R) {
 
         for coeffs in 0..10 {
             let coeffs = 1 << coeffs;
 
             let mut v = vec![];
             for _ in 0..coeffs {
-                v.push(S::random(&mut rng));
+                v.push(Scalar::random(&mut rng));
             }
 
             let mut domain = EvaluationDomain::from_coeffs(v.clone()).unwrap();
@@ -417,23 +436,22 @@ fn fft_composition() {
 
     let rng = &mut rand::thread_rng();
 
-    test_comp::<Fr, _>(rng);
+    test_comp(rng);
 }
 
 #[cfg(feature = "parallel")]
 #[test]
 fn parallel_fft_consistency() {
-    use bls12_381::Scalar as Fr;
     use rand::RngCore;
     use std::cmp::min;
 
-    fn test_consistency<S: PrimeField, R: RngCore>(mut rng: &mut R) {
+    fn test_consistency<R: RngCore>(mut rng: &mut R) {
 
         for _ in 0..5 {
             for log_d in 0..10 {
                 let d = 1 << log_d;
 
-                let v1 = (0..d).map(|_| S::random(&mut rng)).collect::<Vec<_>>();
+                let v1 = (0..d).map(|_| Scalar::random(&mut rng)).collect::<Vec<_>>();
                 let mut v1 = EvaluationDomain::from_coeffs(v1).unwrap();
                 let mut v2 = EvaluationDomain::from_coeffs(v1.coeffs.clone()).unwrap();
 
@@ -449,5 +467,5 @@ fn parallel_fft_consistency() {
 
     let rng = &mut rand::thread_rng();
 
-    test_consistency::<Fr, _>(rng);
+    test_consistency(rng);
 }
