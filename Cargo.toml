@@ -15,7 +15,6 @@ debug = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["serde_support"]
 csprng_setup = ["rand"]
 parallel = ["rayon"]
 serde_support = ["serde"]
