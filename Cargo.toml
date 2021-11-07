@@ -1,6 +1,6 @@
 [package]
 name = "kzg"
-version = "0.7.0"
+version = "0.8.0-beta.0"
 edition = "2018"
 license = "MIT"
 authors = [ "sladuca777@gmail.com" ]
@@ -24,7 +24,7 @@ pairing = "0.21.0"
 thiserror = "1.0.26"
 rand = { version = "0.8.4", optional = true }
 serde = { version = "1", optional = true, features = ["derive"] }
-blstrs = { version = "0.4.1" }
+blstrs = { git = "https://github.com/Sladuca/blstrs.git", rev = "7f85101" }
 rayon = { version = "1.5.1", optional = true}
 
 [dev-dependencies]

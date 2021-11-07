@@ -144,6 +144,10 @@ impl Polynomial {
         self.degree
     }
 
+    pub fn slice_coeffs(&self) -> &[Scalar] {
+        &self.coeffs[..self.num_coeffs()]
+    }
+
     pub fn iter_coeffs(&self) -> impl Iterator<Item = &Scalar> {
         self.coeffs.iter().take(self.num_coeffs())
     }

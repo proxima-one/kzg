@@ -1,3 +1,5 @@
+// Note: a lot of this file is copypasta from zkcrypto/bellman
+
 use std::ops::{MulAssign, SubAssign, AddAssign};
 
 use crate::polynomial::Polynomial ;

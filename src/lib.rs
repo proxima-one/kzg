@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use blstrs::{G1Affine, G2Affine, Scalar, pairing};
+use blstrs::{G1Affine, G1Projective, G2Affine, G2Projective, Scalar, pairing};
 use pairing::group::{Curve, ff::Field, prime::PrimeCurveAffine};
 use thiserror::Error;
 
@@ -16,13 +16,9 @@ use polynomial::{Polynomial, SubProductTree, op_tree};
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
 pub struct KZGParams {
-    /// generator of g
-    g: G1Affine,
-    /// generator of G2
-    h: G2Affine,
-    /// g^alpha^1, g^alpha^2, ...
+    /// g, g^alpha^1, g^alpha^2, ...
     gs: Vec<G1Affine>,
-    /// g^alpha^1, g^alpha^2, ...
+    /// h, h^alpha^1, h^alpha^2, ...
     hs: Vec<G2Affine>,
 }
 
@@ -95,10 +91,13 @@ impl<'params> KZGProver<'params> {
     }
 
     pub fn commit(&mut self, polynomial: Polynomial) -> KZGCommitment {
-        let mut commitment = self.parameters.g * polynomial.coeffs[0];
-        for i in 0..polynomial.degree() {
-            commitment += self.parameters.gs[i] * polynomial.coeffs[i + 1];
-        }
+        let gs: Vec<G1Projective> = self.parameters.gs.iter().take(polynomial.num_coeffs()).map(|g| g.to_curve()).collect();
+        let commitment = G1Projective::multi_exp(gs.as_slice(), polynomial.slice_coeffs());
+
+        // let mut commitment = self.parameters.gs[0] * polynomial.coeffs[0];
+        // for i in 1..polynomial.num_coeffs() {
+        //     commitment += self.parameters.gs[i] * polynomial.coeffs[i];
+        // }
 
         self.polynomial = Some(polynomial);
         let commitment = commitment.to_affine();
@@ -148,10 +147,17 @@ impl<'params> KZGProver<'params> {
                     // self.polynomial(point.y) != point.1
                     (_, Some(_)) => Err(KZGError::PointNotOnPolynomial),
                     (psi, None) => {
-                        let mut w = self.parameters.g * psi.coeffs[0];
-                        for i in 0..psi.degree() {
-                            w += self.parameters.gs[i] * psi.coeffs[i + 1];
-                        }
+                        let w = if psi.num_coeffs() == 1 {
+                            self.parameters.gs[0] * psi.coeffs[0]
+                        } else {
+                            let gs: Vec<G1Projective> = self.parameters.gs.iter().take(psi.num_coeffs()).map(|g| g.to_curve()).collect();
+                            G1Projective::multi_exp(gs.as_slice(), psi.slice_coeffs())
+                        };
+
+                        // let mut w = self.parameters.gs[0] * psi.coeffs[0];
+                        // for i in 1..psi.num_coeffs() {
+                        //     w += self.parameters.gs[i] * psi.coeffs[i];
+                        // }
 
                         Ok(w.to_affine())
                     }
@@ -178,10 +184,18 @@ impl<'params> KZGProver<'params> {
                 match rem {
                     Some(_) => Err(KZGError::PointNotOnPolynomial),
                     None => {
-                        let mut w = self.parameters.g * psi.coeffs[0];
-                        for i in 0..psi.degree() {
-                            w += self.parameters.gs[i] * psi.coeffs[i + 1];
-                        }
+                        let w = if psi.num_coeffs() == 1 {
+                            self.parameters.gs[0] * psi.coeffs[0]
+                        } else {
+                            let gs: Vec<G1Projective> = self.parameters.gs.iter().take(psi.num_coeffs()).map(|g| g.to_curve()).collect();
+                            G1Projective::multi_exp(gs.as_slice(), psi.slice_coeffs())
+                        };
+
+                        // let mut w = self.parameters.gs[0] * psi.coeffs[0];
+                        // for i in 1..psi.num_coeffs() {
+                        //     w += self.parameters.gs[i] * psi.coeffs[i];
+                        // }
+
                         Ok(KZGBatchWitness {
                             r: interpolation,
                             w: w.to_affine(),
@@ -203,10 +217,13 @@ impl<'params> KZGVerifier<'params> {
         commitment: &KZGCommitment,
         polynomial: &Polynomial,
     ) -> bool {
-        let mut check = self.parameters.g * polynomial.coeffs[0];
-        for i in 0..polynomial.degree() {
-            check += self.parameters.gs[i]* polynomial.coeffs[i + 1];
-        }
+        let gs: Vec<G1Projective> = self.parameters.gs.iter().take(polynomial.num_coeffs()).map(|g| g.to_curve()).collect();
+        let check = G1Projective::multi_exp(gs.as_slice(), polynomial.slice_coeffs());
+
+        // let mut check = self.parameters.gs[0] * polynomial.coeffs[0];
+        // for i in 1..polynomial.num_coeffs() {
+        //     check += self.parameters.gs[i] * polynomial.coeffs[i];
+        // }
 
         check.to_affine() == *commitment
     }
@@ -219,11 +236,11 @@ impl<'params> KZGVerifier<'params> {
     ) -> bool {
         let lhs = pairing(
             witness,
-            &(self.parameters.hs[0].to_curve() - self.parameters.h * x).to_affine(),
+            &(self.parameters.hs[1].to_curve() - self.parameters.hs[0] * x).to_affine(),
         );
         let rhs = pairing(
-            &(commitment.to_curve() - self.parameters.g * y).to_affine(),
-            &self.parameters.h,
+            &(commitment.to_curve() - self.parameters.gs[0] * y).to_affine(),
+            &self.parameters.hs[0],
         );
 
         lhs == rhs
@@ -246,20 +263,35 @@ impl<'params> KZGVerifier<'params> {
             &|a, b| a.best_mul(&b),
         );
 
-        let mut hz = self.parameters.h * z.coeffs[0];
-        for i in 0..z.degree() {
-            hz += self.parameters.hs[i] * z.coeffs[i + 1];
-        }
+        // let mut hz = self.parameters.hs[0] * z.coeffs[0];
+        // for i in 1..z.num_coeffs() {
+        //     hz += self.parameters.hs[i] * z.coeffs[i];
+        // }
 
-        let mut gr = self.parameters.g * witness.r.coeffs[0];
-        for i in 0..witness.r.degree() {
-            gr += self.parameters.gs[i] * witness.r.coeffs[i + 1];
-        }
+        let hz = if z.num_coeffs() == 1 {
+            self.parameters.hs[0] * z.coeffs[0]
+        } else {
+            let hs: Vec<G2Projective> = self.parameters.hs.iter().take(z.num_coeffs()).map(|h| h.to_curve()).collect();
+            G2Projective::multi_exp(hs.as_slice(), z.slice_coeffs())
+        };
+
+
+        // let mut gr= self.parameters.gs[0] * witness.r.coeffs[0];
+        // for i in 1..witness.r.num_coeffs() {
+        //     gr += self.parameters.gs[i] * witness.r.coeffs[i];
+        // }
+
+        let gr = if witness.r.num_coeffs() == 1 {
+            self.parameters.gs[0] * witness.r.coeffs[0]
+        } else {
+            let gs: Vec<G1Projective> = self.parameters.gs.iter().take(witness.r.num_coeffs()).map(|g| g.to_curve()).collect();
+            G1Projective::multi_exp(gs.as_slice(), witness.r.slice_coeffs())
+        };
 
         let lhs = pairing(&witness.w, &hz.to_affine());
         let rhs = pairing(
             &(commitment.to_curve() - gr).to_affine(),
-            &self.parameters.h,
+            &self.parameters.hs[0],
         );
 
         lhs == rhs
@@ -267,26 +299,22 @@ impl<'params> KZGVerifier<'params> {
 }
 
 pub fn setup(s: Scalar, num_coeffs: usize) -> KZGParams {
-    let g = G1Affine::generator();
-    let h = G2Affine::generator();
+    let mut gs = vec![G1Affine::generator(); num_coeffs + 1];
+    let mut hs = vec![G2Affine::generator(); num_coeffs + 1];
 
-    let mut gs = vec![g; num_coeffs];
-    let mut hs = vec![h; num_coeffs];
-
-    let mut curr = g;
-
-    for g in gs.iter_mut() {
-        *g =  (curr * s).to_affine();
+    let mut curr = gs[0];
+    for g in gs.iter_mut().skip(1) {
+        *g = (curr * s).to_affine();
         curr = *g;
     }
 
-    let mut curr = h;
-    for h in hs.iter_mut() {
-        *h =  (curr * s).to_affine();
+    let mut curr = hs[0];
+    for h in hs.iter_mut().skip(1) {
+        *h = (curr * s).to_affine();
         curr = *h;
     }
 
-    KZGParams { g, h, gs, hs }
+    KZGParams { gs, hs }
 }
 
 #[cfg(any(csprng_setup, test))]
@@ -301,20 +329,12 @@ pub fn csprng_setup(num_coeffs: usize) -> KZGParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazy_static::lazy_static;
     use rand::{rngs::SmallRng, Rng, SeedableRng};
-    use std::sync::Mutex;
 
-    const RNG_SEED_0: [u8; 32] = [42; 32];
-    const RNG_SEED_1: [u8; 32] = [79; 32];
+    const RNG_SEED: [u8; 32] = [69; 32];
 
-    lazy_static! {
-        static ref RNG_0: Mutex<SmallRng> = Mutex::new(SmallRng::from_seed(RNG_SEED_0));
-        static ref RNG_1: Mutex<SmallRng> = Mutex::new(SmallRng::from_seed(RNG_SEED_1));
-    }
-
-    fn test_setup<const MAX_COEFFS: usize>() -> KZGParams {
-        let s: Scalar = RNG_0.lock().unwrap().gen::<u64>().into();
+    fn test_setup<const MAX_COEFFS: usize>(rng: &mut SmallRng) -> KZGParams {
+        let s: Scalar = rng.gen::<u64>().into();
         setup(s, MAX_COEFFS)
     }
 
@@ -328,12 +348,12 @@ mod tests {
     }
 
     // never returns zero polynomial
-    fn random_polynomial(min_coeffs: usize, max_coeffs: usize) -> Polynomial {
-        let num_coeffs = RNG_1.lock().unwrap().gen_range(min_coeffs..max_coeffs);
+    fn random_polynomial(rng: &mut SmallRng, min_coeffs: usize, max_coeffs: usize) -> Polynomial {
+        let num_coeffs = rng.gen_range(min_coeffs..max_coeffs);
         let mut coeffs = vec![Scalar::zero(); max_coeffs];
 
         for i in 0..num_coeffs {
-            coeffs[i] = RNG_1.lock().unwrap().gen::<u64>().into();
+            coeffs[i] = rng.gen::<u64>().into();
         }
 
         let mut poly = Polynomial::new_from_coeffs(coeffs, num_coeffs - 1);
@@ -393,20 +413,23 @@ mod tests {
 
     #[test]
     fn test_basic() {
-        let params = test_setup::<10>();
+        let mut rng = SmallRng::from_seed(RNG_SEED);
+        let params = test_setup::<10>(&mut rng);
+
         let (mut prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(1, 10);
+        let polynomial = random_polynomial(&mut rng, 2, 12);
         let commitment = prover.commit(polynomial.clone());
 
         assert_verify_poly(&verifier, &commitment, &polynomial);
-        assert_verify_poly_fails(&verifier, &commitment, &random_polynomial(1, 10));
+        assert_verify_poly_fails(&verifier, &commitment, &random_polynomial(&mut rng, 2, 12));
     }
 
     fn random_field_elem_neq(val: Scalar) -> Scalar {
-        let mut v: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+        let mut rng = SmallRng::from_seed(RNG_SEED); 
+        let mut v: Scalar = rng.gen::<u64>().into();
         while v == val {
-            v = RNG_1.lock().unwrap().gen::<u64>().into();
+            v = rng.gen::<u64>().into();
         }
 
         v
@@ -414,10 +437,12 @@ mod tests {
 
     #[test]
     fn test_modify_single_coeff() {
-        let params = test_setup::<8>();
+        let mut rng = SmallRng::from_seed(RNG_SEED);
+        let params = test_setup::<8>(&mut rng);
+
         let (mut prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(4, 8);
+        let polynomial = random_polynomial(&mut rng, 3, 8);
         let commitment = prover.commit(polynomial.clone());
 
         let mut modified_polynomial = polynomial.clone();
@@ -430,13 +455,15 @@ mod tests {
 
     #[test]
     fn test_eval_basic() {
-        let params = test_setup::<13>();
+        let mut rng = SmallRng::from_seed(RNG_SEED);
+        let params = test_setup::<13>(&mut rng);
+
         let (mut prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(5, 13);
+        let polynomial = random_polynomial(&mut rng, 5, 13);
         let commitment = prover.commit(polynomial.clone());
 
-        let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+        let x: Scalar = rng.gen::<u64>().into();
         let y = polynomial.eval(x);
 
         let witness = prover.create_witness((x, y)).unwrap();
@@ -459,15 +486,17 @@ mod tests {
 
     #[test]
     fn test_eval_batched() {
-        let params = test_setup::<15>();
+        let mut rng = SmallRng::from_seed(RNG_SEED);
+        let params = test_setup::<15>(&mut rng);
+
         let (mut prover, verifier) = test_participants(&params);
-        let polynomial = random_polynomial(8, 15);
+        let polynomial = random_polynomial(&mut rng, 8, 15);
         let commitment = prover.commit(polynomial.clone());
 
         let mut xs: Vec<Scalar> = Vec::with_capacity(8);
         let mut ys: Vec<Scalar> = Vec::with_capacity(8);
         for _ in 0..8 {
-            let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+            let x: Scalar = rng.gen::<u64>().into();
             xs.push(x);
             ys.push(polynomial.eval(x));
         }
@@ -478,7 +507,7 @@ mod tests {
         let mut xs: Vec<Scalar> = Vec::with_capacity(8);
         let mut ys: Vec<Scalar> = Vec::with_capacity(8);
         for _ in 0..8 {
-            let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+            let x: Scalar = rng.gen::<u64>().into();
             xs.push(x);
             ys.push(polynomial.eval(x));
         }
@@ -488,15 +517,17 @@ mod tests {
 
     #[test]
     fn test_eval_batched_all_points() {
-        let params = test_setup::<15>();
+        let mut rng = SmallRng::from_seed(RNG_SEED);
+        let params = test_setup::<15>(&mut rng);
+        
         let (mut prover, verifier) = test_participants(&params);
-        let polynomial = random_polynomial(8, 15);
+        let polynomial = random_polynomial(&mut rng, 13, 14);
         let commitment = prover.commit(polynomial.clone());
-
+        
         let mut xs: Vec<Scalar> = Vec::with_capacity(polynomial.num_coeffs());
         let mut ys: Vec<Scalar> = Vec::with_capacity(polynomial.num_coeffs());
         for _ in 0..polynomial.num_coeffs() {
-            let x: Scalar = RNG_1.lock().unwrap().gen::<u64>().into();
+            let x: Scalar = rng.gen::<u64>().into();
             xs.push(x);
             ys.push(polynomial.eval(x));
         }
