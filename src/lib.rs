@@ -94,11 +94,6 @@ impl<'params> KZGProver<'params> {
         let gs: Vec<G1Projective> = self.parameters.gs.iter().take(polynomial.num_coeffs()).map(|g| g.to_curve()).collect();
         let commitment = G1Projective::multi_exp(gs.as_slice(), polynomial.slice_coeffs());
 
-        // let mut commitment = self.parameters.gs[0] * polynomial.coeffs[0];
-        // for i in 1..polynomial.num_coeffs() {
-        //     commitment += self.parameters.gs[i] * polynomial.coeffs[i];
-        // }
-
         self.polynomial = Some(polynomial);
         let commitment = commitment.to_affine();
         self.commitment = Some(commitment);
@@ -154,11 +149,6 @@ impl<'params> KZGProver<'params> {
                             G1Projective::multi_exp(gs.as_slice(), psi.slice_coeffs())
                         };
 
-                        // let mut w = self.parameters.gs[0] * psi.coeffs[0];
-                        // for i in 1..psi.num_coeffs() {
-                        //     w += self.parameters.gs[i] * psi.coeffs[i];
-                        // }
-
                         Ok(w.to_affine())
                     }
                 }
@@ -191,11 +181,6 @@ impl<'params> KZGProver<'params> {
                             G1Projective::multi_exp(gs.as_slice(), psi.slice_coeffs())
                         };
 
-                        // let mut w = self.parameters.gs[0] * psi.coeffs[0];
-                        // for i in 1..psi.num_coeffs() {
-                        //     w += self.parameters.gs[i] * psi.coeffs[i];
-                        // }
-
                         Ok(KZGBatchWitness {
                             r: interpolation,
                             w: w.to_affine(),
@@ -219,11 +204,6 @@ impl<'params> KZGVerifier<'params> {
     ) -> bool {
         let gs: Vec<G1Projective> = self.parameters.gs.iter().take(polynomial.num_coeffs()).map(|g| g.to_curve()).collect();
         let check = G1Projective::multi_exp(gs.as_slice(), polynomial.slice_coeffs());
-
-        // let mut check = self.parameters.gs[0] * polynomial.coeffs[0];
-        // for i in 1..polynomial.num_coeffs() {
-        //     check += self.parameters.gs[i] * polynomial.coeffs[i];
-        // }
 
         check.to_affine() == *commitment
     }
@@ -263,23 +243,12 @@ impl<'params> KZGVerifier<'params> {
             &|a, b| a.best_mul(&b),
         );
 
-        // let mut hz = self.parameters.hs[0] * z.coeffs[0];
-        // for i in 1..z.num_coeffs() {
-        //     hz += self.parameters.hs[i] * z.coeffs[i];
-        // }
-
         let hz = if z.num_coeffs() == 1 {
             self.parameters.hs[0] * z.coeffs[0]
         } else {
             let hs: Vec<G2Projective> = self.parameters.hs.iter().take(z.num_coeffs()).map(|h| h.to_curve()).collect();
             G2Projective::multi_exp(hs.as_slice(), z.slice_coeffs())
         };
-
-
-        // let mut gr= self.parameters.gs[0] * witness.r.coeffs[0];
-        // for i in 1..witness.r.num_coeffs() {
-        //     gr += self.parameters.gs[i] * witness.r.coeffs[i];
-        // }
 
         let gr = if witness.r.num_coeffs() == 1 {
             self.parameters.gs[0] * witness.r.coeffs[0]
