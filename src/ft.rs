@@ -1,8 +1,8 @@
 // Note: a lot of this file is copypasta from zkcrypto/bellman
 
-use std::ops::{MulAssign, SubAssign, AddAssign};
+use std::ops::{AddAssign, MulAssign, SubAssign};
 
-use crate::polynomial::Polynomial ;
+use crate::polynomial::Polynomial;
 use crate::KZGError;
 use blstrs::Scalar;
 use pairing::group::ff::Field;
@@ -13,14 +13,15 @@ use crate::utils::chunk_by_num_threads;
 #[cfg(feature = "parallel")]
 use crate::utils::log2;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EvaluationDomain {
-    coeffs: Vec<Scalar>,
-    exp: u32,
-    omega: Scalar,
-    omegainv: Scalar,
-    geninv: Scalar,
-    minv: Scalar,
+    pub(crate) coeffs: Vec<Scalar>,
+    pub(crate) d: usize,
+    pub(crate) exp: u32,
+    pub(crate) omega: Scalar,
+    pub(crate) omegainv: Scalar,
+    pub(crate) geninv: Scalar,
+    pub(crate) minv: Scalar,
 }
 
 impl From<EvaluationDomain> for Polynomial {
@@ -46,13 +47,18 @@ impl EvaluationDomain {
         self.coeffs
     }
 
-    pub fn from_coeffs(mut coeffs: Vec<Scalar>) -> Result<EvaluationDomain, KZGError> {
+    pub fn len(&self) -> usize {
+        self.coeffs.len()
+    }
+
+    // returns m, exp, and omega
+    pub fn compute_omega(d: usize) -> Result<(usize, u32, Scalar), KZGError> {
         // Compute the size of our evaluation domain
         let mut m = 1;
         let mut exp = 0;
 
         // TODO cache this in a lazy static
-        while m < coeffs.len() {
+        while m < d {
             m *= 2;
             exp += 1;
 
@@ -64,15 +70,35 @@ impl EvaluationDomain {
         }
 
         // Compute omega, the 2^exp primitive root of unity
-        let mut omega = Scalar::root_of_unity();
-        for _ in exp..Scalar::S {
-            omega = omega.square();
+        let omega = Scalar::root_of_unity().pow_vartime(&[1 << (Scalar::S - exp)]);
+
+        Ok((m, exp, omega))
+    }
+
+    pub fn clone_with_different_coeffs(&self, coeffs: Vec<Scalar>) -> EvaluationDomain {
+        EvaluationDomain { coeffs, ..*self }
+    }
+
+    pub fn new(coeffs: Vec<Scalar>, d: usize, exp: u32, omega: Scalar) -> Self {
+        EvaluationDomain {
+            coeffs,
+            d,
+            exp,
+            omega,
+            omegainv: omega.invert().unwrap(),
+            geninv: Scalar::multiplicative_generator().invert().unwrap(),
+            minv: Scalar::from(d as u64).invert().unwrap(),
         }
+    }
+
+    pub fn from_coeffs(mut coeffs: Vec<Scalar>) -> Result<EvaluationDomain, KZGError> {
+        let (m, exp, omega) = Self::compute_omega(coeffs.len())?;
 
         // Extend the coeffs vector with zeroes if necessary
         coeffs.resize(m, Scalar::zero());
 
         Ok(EvaluationDomain {
+            d: m,
             coeffs,
             exp,
             omega,
@@ -135,7 +161,7 @@ impl EvaluationDomain {
                 let mut u = g.pow_vartime(&[i as u64]);
                 v.mul_assign(&u);
                 u.mul_assign(&g);
-            };
+            }
         };
     }
 
@@ -164,12 +190,15 @@ impl EvaluationDomain {
     /// evaluation domain, so we must perform division over
     /// a coset.
     pub fn divide_by_z_on_coset(&mut self) {
-        let i = self.z(&Scalar::multiplicative_generator()).invert().unwrap();
+        let i = self
+            .z(&Scalar::multiplicative_generator())
+            .invert()
+            .unwrap();
 
         #[cfg(feature = "parallel")]
         rayon::scope(|scope| {
             let chunk_size = chunk_by_num_threads(self.coeffs.len());
-            
+
             for v in self.coeffs.chunks_mut(chunk_size) {
                 scope.spawn(move |_scope| {
                     for v in v {
@@ -236,12 +265,9 @@ impl EvaluationDomain {
         });
 
         #[cfg(not(feature = "parallel"))]
-        for (a, b) in self
-            .coeffs
-            .iter_mut()
-            .zip(other.coeffs.iter()) {
-                a.sub_assign(b);
-            }
+        for (a, b) in self.coeffs.iter_mut().zip(other.coeffs.iter()) {
+            a.sub_assign(b);
+        }
     }
 }
 
@@ -368,7 +394,7 @@ use bls12_381::Scalar;
 
 #[cfg(all(feature = "serde_support", feature = "b12_381"))]
 #[derive(Serialize, Deserialize)]
-pub struct SerializableEvaluationDomain  {
+pub struct SerializableEvaluationDomain {
     coeffs: Vec<SerializablePrimeField<Scalar>>,
     exp: u32,
     omega: SerializablePrimeField<Scalar>,
@@ -377,13 +403,14 @@ pub struct SerializableEvaluationDomain  {
     minv: SerializablePrimeField<Scalar>,
 }
 
+#[cfg(test)]
+use rand::{rngs::SmallRng, Rng, SeedableRng};
+
 // Test multiplying various (low degree) polynomials together and
 // comparing with naive evaluations.
 #[test]
 fn polynomial_arith() {
-    use rand::RngCore;
-
-    fn test_mul<R: RngCore>(mut rng: &mut R) {
+    fn test_mul<R: Rng>(mut rng: &mut R) {
         for coeffs_a in vec![1, 5, 10, 50] {
             for coeffs_b in vec![1, 5, 10, 50] {
                 let a: Vec<_> = (0..coeffs_a).map(|_| Scalar::random(&mut rng)).collect();
@@ -401,9 +428,20 @@ fn polynomial_arith() {
         }
     }
 
-    let rng = &mut rand::thread_rng();
+    let rng = &mut SmallRng::from_seed([42; 32]);
 
     test_mul(rng);
+}
+
+#[cfg(test)]
+fn random_evals(rng: &mut SmallRng, d: usize) -> EvaluationDomain {
+    let mut coeffs = vec![Scalar::zero(); d];
+
+    for i in 0..d {
+        coeffs[i] = rng.gen::<u64>().into();
+    }
+
+    EvaluationDomain::from_coeffs(coeffs).unwrap()
 }
 
 #[test]
@@ -411,7 +449,6 @@ fn fft_composition() {
     use rand::RngCore;
 
     fn test_comp<R: RngCore>(mut rng: &mut R) {
-
         for coeffs in 0..10 {
             let coeffs = 1 << coeffs;
 
@@ -448,7 +485,6 @@ fn parallel_fft_consistency() {
     use std::cmp::min;
 
     fn test_consistency<R: RngCore>(mut rng: &mut R) {
-
         for _ in 0..5 {
             for log_d in 0..10 {
                 let d = 1 << log_d;

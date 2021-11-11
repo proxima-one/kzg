@@ -15,7 +15,7 @@ pub fn log2(mut x: u64) -> u64 {
     x |= x >> 8;
     x |= x >> 16;
     x |= x >> 32;
-    LOG_TABLE[((x - (x >> 1)) * 0x07EDD5E59A4E28C2 >> 58) as usize]
+    LOG_TABLE[(((x - (x >> 1)) * 0x07EDD5E59A4E28C2) >> 58) as usize]
 }
 
 pub fn log2_ceil(x: u64) -> u64 {
@@ -30,7 +30,7 @@ pub fn log2_ceil(x: u64) -> u64 {
 
 pub fn pad_to_power_of_two<S: PrimeField>(xs: &[S]) -> Vec<S> {
     let n = 1 << log2_ceil(xs.len() as u64) as usize;
-    let mut xs: Vec<S> = xs.clone().into();
+    let mut xs: Vec<S> = xs.to_vec();
     if xs.len() != n {
         xs.resize(n, S::zero())
     }

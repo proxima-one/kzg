@@ -1,7 +1,7 @@
-use kzg::polynomial::Polynomial;
-use kzg::{setup, KZGParams, KZGProver};
-use pairing::{group::ff::Field};
 use blstrs::Scalar;
+use kzg::polynomial::Polynomial;
+use kzg::{coeff_form::KZGProver, setup, KZGParams};
+use pairing::group::ff::Field;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -19,17 +19,23 @@ fn bench_commit<const NUM_COEFFS: usize>(c: &mut Criterion) {
         coeffs[i] = rng.gen::<u64>().into();
     }
     let polynomial = Polynomial::new(coeffs);
+    let prover = KZGProver::new(&params);
 
     c.bench_function(
-        format!("bench_commit, degree {}", NUM_COEFFS - 1).as_str(),
+        format!("bench_commit_coeff_form, degree {}", NUM_COEFFS - 1).as_str(),
         |b| {
             b.iter(|| {
-                let mut prover = KZGProver::new(&params);
-                prover.commit(black_box(polynomial.clone()))
+                black_box(&prover).commit(black_box(&polynomial))
             })
         },
     );
 }
 
-criterion_group!(commit, bench_commit<10>, bench_commit<50>, bench_commit<100>, bench_commit<200>);
+criterion_group!(
+    commit,
+    bench_commit<16>,
+    bench_commit<64>,
+    bench_commit<128>,
+    bench_commit<256>
+);
 criterion_main!(commit);

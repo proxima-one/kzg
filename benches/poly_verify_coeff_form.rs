@@ -1,7 +1,10 @@
 use blstrs::Scalar;
 use kzg::polynomial::Polynomial;
-use kzg::{setup, KZGParams, KZGProver, KZGVerifier};
-use pairing::{group::ff::Field};
+use kzg::{
+    coeff_form::{KZGProver, KZGVerifier},
+    setup, KZGParams,
+};
+use pairing::group::ff::Field;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -19,12 +22,12 @@ fn bench_poly_verify<const NUM_COEFFS: usize>(c: &mut Criterion) {
         coeffs[i] = rng.gen::<u64>().into();
     }
     let polynomial = Polynomial::new_from_coeffs(coeffs, NUM_COEFFS - 1);
-    let mut prover = KZGProver::new(&params);
+    let prover = KZGProver::new(&params);
     let verifier = KZGVerifier::new(&params);
-    let commitment = prover.commit(polynomial.clone());
+    let commitment = prover.commit(&polynomial);
 
     c.bench_function(
-        format!("bench_verify_poly, degree {}", NUM_COEFFS - 1).as_str(),
+        format!("bench_verify_poly_coeff_form, degree {}", NUM_COEFFS - 1).as_str(),
         |b| {
             b.iter(|| {
                 verifier.verify_poly(black_box(&commitment), black_box(&polynomial));
@@ -33,5 +36,11 @@ fn bench_poly_verify<const NUM_COEFFS: usize>(c: &mut Criterion) {
     );
 }
 
-criterion_group!(poly_verify, bench_poly_verify<10>, bench_poly_verify<50>, bench_poly_verify<100>, bench_poly_verify<200>);
+criterion_group!(
+    poly_verify,
+    bench_poly_verify<16>,
+    bench_poly_verify<64>,
+    bench_poly_verify<128>,
+    bench_poly_verify<256>
+);
 criterion_main!(poly_verify);

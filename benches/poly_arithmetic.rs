@@ -59,5 +59,12 @@ fn bench_poly_arithmetic<const NUM_COEFFS: usize>(c: &mut Criterion) {
     );
 }
 
-criterion_group!(poly_arithmetic, bench_poly_arithmetic<16>, bench_poly_arithmetic<64>, bench_poly_arithmetic<128>, bench_poly_arithmetic<256>, bench_poly_arithmetic<512>);
+criterion_group!(
+    poly_arithmetic,
+    bench_poly_arithmetic<16>,
+    bench_poly_arithmetic<64>,
+    bench_poly_arithmetic<128>,
+    bench_poly_arithmetic<256>,
+    bench_poly_arithmetic<512>
+);
 criterion_main!(poly_arithmetic);

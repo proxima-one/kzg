@@ -1,13 +1,12 @@
-use std::borrow::Borrow;
-use std::cmp::{Eq, PartialEq};
-use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
-use std::iter::Iterator;
 use blstrs::Scalar;
 use pairing::group::ff::Field;
+use std::borrow::Borrow;
+use std::cmp::{Eq, PartialEq};
+use std::iter::Iterator;
+use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
 #[cfg(feature = "serde_support")]
-use serde::{Serialize, Deserialize};
-
+use serde::{Deserialize, Serialize};
 
 use crate::ft::EvaluationDomain;
 
@@ -57,24 +56,21 @@ impl Polynomial {
     pub fn from_scalar(scalar: Scalar) -> Polynomial {
         Polynomial {
             degree: 0,
-            coeffs: vec![scalar]
+            coeffs: vec![scalar],
         }
     }
 
     pub fn new_monic_of_degree(degree: usize) -> Polynomial {
         Polynomial {
             degree,
-            coeffs: vec![Scalar::one(); degree + 1]
+            coeffs: vec![Scalar::one(); degree + 1],
         }
     }
 
     pub fn new_single_term(degree: usize) -> Polynomial {
         let mut coeffs = vec![Scalar::zero(); degree + 1];
         coeffs[degree] = Scalar::one();
-        Polynomial {
-            degree,
-            coeffs
-        }
+        Polynomial { degree, coeffs }
     }
 
     pub fn new_zero_with_size(cap: usize) -> Polynomial {
@@ -95,7 +91,7 @@ impl Polynomial {
         Polynomial { degree, coeffs }
     }
 
-    pub fn compute_degree(coeffs: &Vec<Scalar>, upper_bound: usize) -> usize {
+    pub fn compute_degree(coeffs: &[Scalar], upper_bound: usize) -> usize {
         let mut i = upper_bound;
         loop {
             if i == 0 {
@@ -144,6 +140,11 @@ impl Polynomial {
         self.degree
     }
 
+    pub fn coeffs(mut self) -> Vec<Scalar> {
+        self.coeffs.truncate(self.num_coeffs());
+        self.coeffs
+    }
+
     pub fn slice_coeffs(&self) -> &[Scalar] {
         &self.coeffs[..self.num_coeffs()]
     }
@@ -185,7 +186,7 @@ impl Polynomial {
         if self.degree() < FFT_MUL_THRESHOLD || other.degree() < FFT_MUL_THRESHOLD {
             self.clone() * other.clone()
         } else {
-            self.fft_mul(&other)
+            self.fft_mul(other)
         }
     }
 
@@ -225,44 +226,6 @@ impl Polynomial {
         }
     }
 
-    pub fn fft_div(&self, divisor: &Self) -> (Polynomial, Option<Polynomial>) {
-        let m = self.degree();
-        let n = divisor.degree();
-
-        let mut a_rev = self.clone();
-        let mut b_rev = divisor.clone();
-
-        a_rev.reverse();
-        b_rev.reverse();
-
-        let inv = b_rev.invert(m - n);
-        
-        let q_rev = a_rev.best_mul(&inv);
-        let mut q = q_rev.clone();
-        q.truncate(m - n);
-        q.reverse();
-
-        let r = self - &divisor.best_mul(&q);
-        if r.is_zero() {
-            (q, None)
-        } else {
-            (q, Some(r))
-        }
-    }
-
-    /// computes the first degree + 1 terms of the formal series 1/f(x)
-    /// panics if coeffs[0] == 0 or lead_coeff == 0
-    pub fn invert(&self, degree: usize) -> Polynomial {
-        if degree == 0 {
-            Polynomial::new_from_coeffs(vec![self.coeffs[0].invert().unwrap()], 0)
-        } else {
-            let c = self.invert(degree / 2);
-            let mut res = c.best_mul(&Polynomial::from_scalar(2.into()).sub(&c.best_mul(self)));
-            res.truncate(degree);
-            res
-        }
-    }
-
     pub fn multi_eval(&self, xs: &[Scalar]) -> Vec<Scalar> {
         assert!(xs.len() > self.degree());
         let tree = SubProductTree::new_from_points(xs);
@@ -271,7 +234,11 @@ impl Polynomial {
 
     /// Performs lagrange interpolation on a pre-computed sub-product tree of xs.
     /// `tree` must be the same as the result when calling SubProductTree::new_from_points(xs)
-    pub fn lagrange_interpolation_with_tree(xs: &[Scalar], ys: &[Scalar], tree: &SubProductTree) -> Polynomial {
+    pub fn lagrange_interpolation_with_tree(
+        xs: &[Scalar],
+        ys: &[Scalar],
+        tree: &SubProductTree,
+    ) -> Polynomial {
         assert_eq!(xs.len(), ys.len());
 
         if xs.len() == 1 {
@@ -286,8 +253,12 @@ impl Polynomial {
         m_prime.coeffs.remove(0);
         m_prime.degree -= 1;
 
-
-        let cs: Vec<Scalar> = m_prime.multi_eval(xs).iter().enumerate().map(|(i, c)| ys[i] * c.invert().unwrap()).collect();
+        let cs: Vec<Scalar> = m_prime
+            .multi_eval(xs)
+            .iter()
+            .enumerate()
+            .map(|(i, c)| ys[i] * c.invert().unwrap())
+            .collect();
 
         tree.linear_mod_combination(cs.as_slice())
     }
@@ -311,8 +282,12 @@ impl Polynomial {
         m_prime.coeffs.remove(0);
         m_prime.degree -= 1;
 
-
-        let cs: Vec<Scalar> = m_prime.multi_eval(xs).iter().enumerate().map(|(i, c)| ys[i] * c.invert().unwrap()).collect();
+        let cs: Vec<Scalar> = m_prime
+            .multi_eval(xs)
+            .iter()
+            .enumerate()
+            .map(|(i, c)| ys[i] * c.invert().unwrap())
+            .collect();
 
         tree.linear_mod_combination(cs.as_slice())
     }
@@ -328,7 +303,7 @@ impl Polynomial {
 pub struct SubProductTree {
     pub product: Polynomial,
     pub left: Option<Box<SubProductTree>>,
-    pub right: Option<Box<SubProductTree>>
+    pub right: Option<Box<SubProductTree>>,
 }
 
 impl SubProductTree {
@@ -337,7 +312,7 @@ impl SubProductTree {
             1 => SubProductTree {
                 product: Polynomial::new_from_coeffs(vec![-xs[0], Scalar::one()], 1),
                 left: None,
-                right: None
+                right: None,
             },
             n => {
                 let left = SubProductTree::new_from_points(&xs[..n / 2]);
@@ -345,7 +320,7 @@ impl SubProductTree {
                 SubProductTree {
                     product: left.product.best_mul(&right.product),
                     left: Some(Box::new(left)),
-                    right: Some(Box::new(right))
+                    right: Some(Box::new(right)),
                 }
             }
         }
@@ -358,15 +333,14 @@ impl SubProductTree {
             let y = f.eval(xs[0]);
             vec![y]
         } else {
-
             let left = self.left.as_ref().unwrap();
             let right = self.right.as_ref().unwrap();
 
             let (_, r0) = f.long_division(&left.product);
             let (_, r1) = f.long_division(&right.product);
 
-            let mut l0 = left.eval(&xs[..n/2], &r0.unwrap());
-            let l1 = right.eval(&xs[n/2..], &r1.unwrap());
+            let mut l0 = left.eval(&xs[..n / 2], &r0.unwrap());
+            let l1 = right.eval(&xs[n / 2..], &r1.unwrap());
 
             l0.extend(l1);
             l0
@@ -382,9 +356,9 @@ impl SubProductTree {
             let left = self.left.as_ref().unwrap();
             let right = self.right.as_ref().unwrap();
 
-            let l = left.linear_mod_combination(&cs[..n/2]);
-            let r = right.linear_mod_combination(&cs[n/2..]);
-            
+            let l = left.linear_mod_combination(&cs[..n / 2]);
+            let r = right.linear_mod_combination(&cs[n / 2..]);
+
             right.product.best_mul(&l) + left.product.best_mul(&r)
         }
     }
@@ -603,91 +577,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fft_division() {
-        // test cases taken from https://tutorial.math.lamar.edu/Solutions/Alg/DividingPolynomials
-
-        // 3x^4 - 5x^2 + 3 / x + 2 = 3x^3 - 6x^2 + 7x - 14 r 31
-        let x = Polynomial::new(vec![
-            3.into(),
-            Scalar::zero(),
-            -Scalar::from(5),
-            Scalar::zero(),
-            3.into(),
-        ]);
-        let y = Polynomial::new(vec![
-            2.into(),
-            Scalar::one(),
-            Scalar::zero(),
-            Scalar::zero(),
-            Scalar::zero(),
-        ]);
-
-        let (q, r) = x.fft_div(&y);
-        assert!(r.is_some());
-        assert_eq!(
-            r.unwrap(),
-            Polynomial::new(vec![
-                31.into(),
-                Scalar::zero(),
-                Scalar::zero(),
-                Scalar::zero(),
-                Scalar::zero()
-            ])
-        );
-        assert_eq!(
-            q,
-            Polynomial::new(vec![
-                -Scalar::from(14),
-                7.into(),
-                -Scalar::from(6),
-                3.into(),
-                Scalar::zero(),
-            ])
-        );
-
-        // x^3 + 2x^2 - 3x + 4 / x - 7 = x^2 + 9x + 60 r 424
-        let x = Polynomial::new(vec![4.into(), -Scalar::from(3), 2.into(), Scalar::one()]);
-        let y = Polynomial::new(vec![
-            -Scalar::from(7),
-            Scalar::one(),
-            Scalar::zero(),
-            Scalar::zero(),
-        ]);
-
-        let (q, r) = x.fft_div(&y);
-        assert!(r.is_some());
-        assert_eq!(
-            r.unwrap(),
-            Polynomial::new(vec![
-                424.into(),
-                Scalar::zero(),
-                Scalar::zero(),
-                Scalar::zero(),
-            ])
-        );
-        assert_eq!(
-            q,
-            Polynomial::new(vec![60.into(), 9.into(), Scalar::one(), Scalar::zero(),])
-        );
-
-        // x^3 + 6x^2 + 13x + 10 / x + 2 = x^2 + 4x + 5 r 0
-        let x = Polynomial::new(vec![10.into(), 13.into(), 6.into(), Scalar::one()]);
-        let y = Polynomial::new(vec![
-            Scalar::from(2),
-            Scalar::one(),
-            Scalar::zero(),
-            Scalar::zero(),
-        ]);
-
-        let (q, r) = x.fft_div(&y);
-        assert!(r.is_none());
-        assert_eq!(
-            q,
-            Polynomial::new(vec![5.into(), 4.into(), Scalar::one(), Scalar::zero(),])
-        );
-    }
-
-    #[test]
     fn test_eval_basic() {
         // y(x) = x^5 + 4x^3 + 7x^2 + 34
         let polynomial = Polynomial::new(vec![
@@ -710,19 +599,39 @@ mod tests {
     fn verify_tree(tree: &SubProductTree) {
         if tree.left.is_some() && tree.right.is_some() {
             assert!(
-                tree.product == tree.left.as_ref().unwrap().product.best_mul(&tree.right.as_ref().unwrap().product)
+                tree.product
+                    == tree
+                        .left
+                        .as_ref()
+                        .unwrap()
+                        .product
+                        .best_mul(&tree.right.as_ref().unwrap().product)
             );
         }
     }
 
     #[test]
     fn test_new_subproduct_tree() {
-        let xs = [Scalar::from(2), Scalar::from(5), Scalar::from(7), Scalar::from(90), Scalar::from(111), Scalar::from(31), Scalar::from(29)];
+        let xs = [
+            Scalar::from(2),
+            Scalar::from(5),
+            Scalar::from(7),
+            Scalar::from(90),
+            Scalar::from(111),
+            Scalar::from(31),
+            Scalar::from(29),
+        ];
 
         let tree = SubProductTree::new_from_points(&xs);
         verify_tree(&tree);
 
-        let xs = [Scalar::from(2), Scalar::from(5), Scalar::from(7), Scalar::from(90), Scalar::from(111)];
+        let xs = [
+            Scalar::from(2),
+            Scalar::from(5),
+            Scalar::from(7),
+            Scalar::from(90),
+            Scalar::from(111),
+        ];
         let tree = SubProductTree::new_from_points(&xs);
         verify_tree(&tree);
     }
@@ -736,18 +645,21 @@ mod tests {
                 .collect(),
         );
 
-        let xs: Vec<Scalar> = vec![1, 2, 3, 4, 5, 6, 7, 8].into_iter().map(|x| x.into()).collect();
-        
+        let xs: Vec<Scalar> = vec![1, 2, 3, 4, 5, 6, 7, 8]
+            .into_iter()
+            .map(|x| x.into())
+            .collect();
+
         let mut fast = polynomial.multi_eval(xs.as_slice());
         fast.truncate(xs.len());
         let mut slow = Vec::new();
 
         for i in 0..xs.len() {
-           let slow_y = polynomial.eval(xs[i]);
-           slow.push(slow_y);
+            let slow_y = polynomial.eval(xs[i]);
+            slow.push(slow_y);
         }
 
-        let slow: Vec<Scalar> =  xs.iter().map(|x| polynomial.eval(*x)).collect();
+        let slow: Vec<Scalar> = xs.iter().map(|x| polynomial.eval(*x)).collect();
         assert!(fast == slow);
     }
 
@@ -778,19 +690,18 @@ mod tests {
     }
 
     #[cfg(feature = "serde_support")]
-    use bincode::{serialize, deserialize};
+    use bincode::{deserialize, serialize};
 
     #[cfg(all(feature = "serde_support", feature = "b12_381"))]
     #[test]
     fn test_polynomial_serialization() {
         let f = Polynomial::new(vec![
             3.into(),
-            -Scalar::from(9)
-            -Scalar::from(5),
+            -Scalar::from(9) - Scalar::from(5),
             120.into(),
             4.into(),
         ]);
-        
+
         let serable = SerializablePolynomial::from_inner_ref(&f);
         let ser = serialize(&serable).unwrap();
         let de: SerializablePolynomial<Scalar> = deserialize(ser.as_slice()).unwrap();

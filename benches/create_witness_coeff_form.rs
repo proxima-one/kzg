@@ -1,7 +1,7 @@
-use blstrs::Scalar; 
+use blstrs::Scalar;
 use kzg::polynomial::Polynomial;
-use kzg::{setup, KZGParams, KZGProver};
-use pairing::{group::ff::Field};
+use kzg::{coeff_form::KZGProver, setup, KZGParams};
+use pairing::group::ff::Field;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -19,15 +19,15 @@ fn bench_create_witness<const NUM_COEFFS: usize>(c: &mut Criterion) {
         coeffs[i] = rng.gen::<u64>().into();
     }
     let polynomial = Polynomial::new_from_coeffs(coeffs, NUM_COEFFS - 1);
-    let mut prover = KZGProver::new(&params);
-    let _commitment = prover.commit(polynomial.clone());
+    let prover = KZGProver::new(&params);
+    let _commitment = prover.commit(&polynomial);
 
     let x: Scalar = Scalar::random(&mut rng);
     let y = polynomial.eval(x);
-
+    
     c.bench_function(
-        format!("bench_create_witness, degree {}", NUM_COEFFS - 1).as_str(),
-        |b| b.iter(|| prover.create_witness(black_box((x, y))).unwrap()),
+        format!("bench_create_witness_coeff_form, degree {}", NUM_COEFFS - 1).as_str(),
+        |b| b.iter(|| black_box(&prover).create_witness(black_box(&polynomial), black_box((x, y))).unwrap()),
     );
 
     let mut xs = Vec::with_capacity(NUM_COEFFS - 1);
@@ -39,10 +39,26 @@ fn bench_create_witness<const NUM_COEFFS: usize>(c: &mut Criterion) {
     }
 
     c.bench_function(
-        format!("bench_create_witness_batched, degree {}", NUM_COEFFS - 1).as_str(),
-        |b| b.iter(|| prover.create_witness_batched(black_box(xs.as_slice()), black_box(ys.as_slice())).unwrap()),
+        format!(
+            "bench_create_witness_batched_coeff_form, degree {}",
+            NUM_COEFFS - 1
+        )
+        .as_str(),
+        |b| {
+            b.iter(|| {
+                prover
+                    .create_witness_batched(black_box(&polynomial), black_box(xs.as_slice()), black_box(ys.as_slice()))
+                    .unwrap()
+            })
+        },
     );
 }
 
-criterion_group!(create_witness, bench_create_witness<10>, bench_create_witness<50>, bench_create_witness<100>, bench_create_witness<200>);
+criterion_group!(
+    create_witness,
+    bench_create_witness<16>,
+    bench_create_witness<64>,
+    bench_create_witness<128>,
+    bench_create_witness<256>
+);
 criterion_main!(create_witness);
