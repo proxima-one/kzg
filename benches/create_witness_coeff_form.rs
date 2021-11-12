@@ -37,21 +37,6 @@ fn bench_create_witness<const NUM_COEFFS: usize>(c: &mut Criterion) {
         xs.push(x);
         ys.push(polynomial.eval(x));
     }
-
-    c.bench_function(
-        format!(
-            "bench_create_witness_batched_coeff_form, degree {}",
-            NUM_COEFFS - 1
-        )
-        .as_str(),
-        |b| {
-            b.iter(|| {
-                prover
-                    .create_witness_batched(black_box(&polynomial), black_box(xs.as_slice()), black_box(ys.as_slice()))
-                    .unwrap()
-            })
-        },
-    );
 }
 
 criterion_group!(

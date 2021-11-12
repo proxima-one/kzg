@@ -34,20 +34,6 @@ fn bench_create_witness<const NUM_COEFFS: usize>(c: &mut Criterion) {
         format!("bench_create_witness_eval_form, degree {}", NUM_COEFFS - 1).as_str(),
         |b| b.iter(|| black_box(&prover).create_witness(black_box(&evals), black_box(5))),
     );
-
-    c.bench_function(
-        format!(
-            "bench_create_witness_batched_eval_form, degree {}",
-            NUM_COEFFS - 1
-        )
-        .as_str(),
-        |b| {
-            b.iter(|| {
-                black_box(&prover)
-                    .create_witness_all()
-            })
-        },
-    );
 }
 
 criterion_group!(

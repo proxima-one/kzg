@@ -76,7 +76,6 @@ impl<'params> KZGProver<'params> {
             (psi, None) => {
                 let gs = &self.parameters.gs[..psi.num_coeffs()];
                 Ok(G1Projective::multi_exp(gs, psi.slice_coeffs()).to_affine())
-
             }
         }
     }

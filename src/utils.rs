@@ -1,3 +1,4 @@
+use blstrs::{G1Affine, Scalar};
 use pairing::group::ff::PrimeField;
 
 // fast 64-bit log

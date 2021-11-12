@@ -26,7 +26,7 @@ fn bench_commit<const NUM_COEFFS: usize>(c: &mut Criterion) {
     let lagrange_basis = compute_lagrange_basis(&params);
 
     let evals = random_evals(&mut rng, NUM_COEFFS);
-    let mut prover = KZGProverEvalForm::new(&params, lagrange_basis.0.as_slice(), lagrange_basis.1.as_slice());
+    let prover = KZGProverEvalForm::new(&params, lagrange_basis.0.as_slice(), lagrange_basis.1.as_slice());
 
     c.bench_function(
         format!("bench_commit_eval_form, degree {}", NUM_COEFFS - 1).as_str(),
