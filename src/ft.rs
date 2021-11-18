@@ -14,9 +14,8 @@ use crate::utils::chunk_by_num_threads;
 use crate::utils::log2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EvaluationDomain {
-    pub(crate) coeffs: Vec<Scalar>,
-    pub(crate) d: usize,
+pub struct EvaluationDomain<const N: usize> {
+    pub(crate) coeffs: [Scalar; N],
     pub(crate) exp: u32,
     pub(crate) omega: Scalar,
     pub(crate) omegainv: Scalar,
@@ -24,26 +23,50 @@ pub struct EvaluationDomain {
     pub(crate) minv: Scalar,
 }
 
-impl From<EvaluationDomain> for Polynomial {
-    fn from(domain: EvaluationDomain) -> Polynomial {
+impl<const N: usize> From<EvaluationDomain<N>> for Polynomial<N> {
+    fn from(domain: EvaluationDomain<N>) -> Polynomial<N> {
         Polynomial::new(domain.coeffs)
     }
 }
 
-impl AsRef<[Scalar]> for EvaluationDomain {
+impl<const N: usize> AsRef<[Scalar]> for EvaluationDomain<N> {
     fn as_ref(&self) -> &[Scalar] {
         &self.coeffs
     }
 }
 
-impl AsMut<[Scalar]> for EvaluationDomain {
+impl<const N: usize> AsMut<[Scalar]> for EvaluationDomain<N> {
     fn as_mut(&mut self) -> &mut [Scalar] {
         &mut self.coeffs
     }
 }
 
-impl EvaluationDomain {
-    pub fn into_coeffs(self) -> Vec<Scalar> {
+// returns m, exp, and omega
+pub fn compute_omega(d: usize) -> Result<(usize, u32, Scalar), KZGError> {
+    // Compute the size of our evaluation domain
+    let mut m = 1;
+    let mut exp = 0;
+
+    // TODO cache this in a lazy static
+    while m < d {
+        m *= 2;
+        exp += 1;
+
+        // The pairing-friendly curve may not be able to support
+        // large enough (radix2) evaluation domains.
+        if exp >= Scalar::S {
+            return Err(KZGError::PolynomialDegreeTooLarge);
+        }
+    }
+
+    // Compute omega, the 2^exp primitive root of unity
+    let omega = Scalar::root_of_unity().pow_vartime(&[1 << (Scalar::S - exp)]);
+
+    Ok((m, exp, omega))
+}
+
+impl<const N: usize> EvaluationDomain<N> {
+    pub fn into_coeffs(self) -> [Scalar; N] {
         self.coeffs
     }
 
@@ -51,54 +74,27 @@ impl EvaluationDomain {
         self.coeffs.len()
     }
 
-    // returns m, exp, and omega
-    pub fn compute_omega(d: usize) -> Result<(usize, u32, Scalar), KZGError> {
-        // Compute the size of our evaluation domain
-        let mut m = 1;
-        let mut exp = 0;
 
-        // TODO cache this in a lazy static
-        while m < d {
-            m *= 2;
-            exp += 1;
-
-            // The pairing-friendly curve may not be able to support
-            // large enough (radix2) evaluation domains.
-            if exp >= Scalar::S {
-                return Err(KZGError::PolynomialDegreeTooLarge);
-            }
-        }
-
-        // Compute omega, the 2^exp primitive root of unity
-        let omega = Scalar::root_of_unity().pow_vartime(&[1 << (Scalar::S - exp)]);
-
-        Ok((m, exp, omega))
-    }
-
-    pub fn clone_with_different_coeffs(&self, coeffs: Vec<Scalar>) -> EvaluationDomain {
+    pub fn clone_with_different_coeffs(&self, coeffs: [Scalar; N]) -> EvaluationDomain<N> {
         EvaluationDomain { coeffs, ..*self }
     }
 
-    pub fn new(coeffs: Vec<Scalar>, d: usize, exp: u32, omega: Scalar) -> Self {
+    pub fn new(coeffs: [Scalar; N], exp: u32, omega: Scalar) -> Self {
         EvaluationDomain {
             coeffs,
-            d,
             exp,
             omega,
             omegainv: omega.invert().unwrap(),
             geninv: Scalar::multiplicative_generator().invert().unwrap(),
-            minv: Scalar::from(d as u64).invert().unwrap(),
+            minv: Scalar::from(N as u64).invert().unwrap(),
         }
     }
 
-    pub fn from_coeffs(mut coeffs: Vec<Scalar>) -> Result<EvaluationDomain, KZGError> {
-        let (m, exp, omega) = Self::compute_omega(coeffs.len())?;
-
-        // Extend the coeffs vector with zeroes if necessary
-        coeffs.resize(m, Scalar::zero());
+    pub fn from_coeffs(mut coeffs: [Scalar; N]) -> Result<EvaluationDomain<N>, KZGError> {
+        assert!(N & (N - 1) == 0);
+        let (m, exp, omega) = compute_omega(coeffs.len())?;
 
         Ok(EvaluationDomain {
-            d: m,
             coeffs,
             exp,
             omega,
@@ -217,7 +213,7 @@ impl EvaluationDomain {
     }
 
     /// Perform O(n) multiplication of two polynomials in the domain.
-    pub fn mul_assign(&mut self, other: &EvaluationDomain) {
+    pub fn mul_assign(&mut self, other: &EvaluationDomain<N>) {
         assert_eq!(self.coeffs.len(), other.coeffs.len());
 
         #[cfg(feature = "parallel")]
@@ -244,7 +240,7 @@ impl EvaluationDomain {
     }
 
     /// Perform O(n) subtraction of one polynomial from another in the domain.
-    pub fn sub_assign(&mut self, other: &EvaluationDomain) {
+    pub fn sub_assign(&mut self, other: &EvaluationDomain<N>) {
         assert_eq!(self.coeffs.len(), other.coeffs.len());
 
         #[cfg(feature = "parallel")]
@@ -410,34 +406,37 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 // comparing with naive evaluations.
 #[test]
 fn polynomial_arith() {
-    fn test_mul<R: Rng>(mut rng: &mut R) {
-        for coeffs_a in vec![1, 5, 10, 50] {
-            for coeffs_b in vec![1, 5, 10, 50] {
-                let a: Vec<_> = (0..coeffs_a).map(|_| Scalar::random(&mut rng)).collect();
-                let b: Vec<_> = (0..coeffs_b).map(|_| Scalar::random(&mut rng)).collect();
+    fn test_mul<R: Rng, const N: usize>(mut rng: &mut R) {
+        let mut a = [Scalar::zero(); N];
+        let mut b = [Scalar::zero(); N];
 
-                let a = Polynomial::new_from_coeffs(a, coeffs_a - 1);
-                let b = Polynomial::new_from_coeffs(b, coeffs_b - 1);
-
-                // naive evaluation
-                let naive = a.clone() * b.clone();
-                let fft = a.fft_mul(&b);
-
-                assert!(naive == fft);
-            }
+        for (a, b) in a.iter_mut().zip(b.iter_mut()) {
+            *a = Scalar::random(&mut rng);
+            *b = Scalar::random(&mut rng);
         }
+
+        let a = Polynomial::new_from_coeffs(a, N - 1);
+        let b = Polynomial::new_from_coeffs(b, N - 1);
+
+        // naive evaluation
+        let naive = a.clone() * b.clone();
+        let fft = a.fft_mul(&b);
+
+        assert!(naive == fft);
     }
 
     let rng = &mut SmallRng::from_seed([42; 32]);
 
-    test_mul(rng);
+    test_mul::<_, 8>(rng);
+    test_mul::<_, 16>(rng);
+    test_mul::<_, 32>(rng);
 }
 
 #[cfg(test)]
-fn random_evals(rng: &mut SmallRng, d: usize) -> EvaluationDomain {
-    let mut coeffs = vec![Scalar::zero(); d];
+fn random_evals<const N: usize>(rng: &mut SmallRng) -> EvaluationDomain<N> {
+    let mut coeffs = [Scalar::zero(); N];
 
-    for i in 0..d {
+    for i in 0..N {
         coeffs[i] = rng.gen::<u64>().into();
     }
 
@@ -449,28 +448,26 @@ fn fft_composition() {
     use rand::RngCore;
 
     fn test_comp<R: RngCore>(mut rng: &mut R) {
-        for coeffs in 0..10 {
-            let coeffs = 1 << coeffs;
+        const N: usize = 32;
 
-            let mut v = vec![];
-            for _ in 0..coeffs {
-                v.push(Scalar::random(&mut rng));
-            }
-
-            let mut domain = EvaluationDomain::from_coeffs(v.clone()).unwrap();
-            domain.ifft();
-            domain.fft();
-            assert!(v == domain.coeffs);
-            domain.fft();
-            domain.ifft();
-            assert!(v == domain.coeffs);
-            domain.icoset_fft();
-            domain.coset_fft();
-            assert!(v == domain.coeffs);
-            domain.coset_fft();
-            domain.icoset_fft();
-            assert!(v == domain.coeffs);
+        let mut v = [Scalar::zero(); N];
+        for i in 0..N{
+            v[i] = Scalar::random(&mut rng);
         }
+
+        let mut domain = EvaluationDomain::from_coeffs(v).unwrap();
+        domain.ifft();
+        domain.fft();
+        assert!(v == domain.coeffs);
+        domain.fft();
+        domain.ifft();
+        assert!(v == domain.coeffs);
+        domain.icoset_fft();
+        domain.coset_fft();
+        assert!(v == domain.coeffs);
+        domain.coset_fft();
+        domain.icoset_fft();
+        assert!(v == domain.coeffs);
     }
 
     let rng = &mut rand::thread_rng();

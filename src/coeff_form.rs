@@ -11,12 +11,12 @@ use crate::{KZGCommitment, KZGError, KZGParams, KZGWitness};
 // A witness for a several elements - "w_B" in the paper. It's a single group element plus a polynomial
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
-pub struct KZGBatchWitness {
-    r: Polynomial,
+pub struct KZGBatchWitness<const N: usize> {
+    r: Polynomial<N>,
     w: G1Affine,
 }
 
-impl KZGBatchWitness {
+impl<const N: usize> KZGBatchWitness<N> {
     pub fn elem(&self) -> G1Affine {
         self.w
     }
@@ -25,49 +25,53 @@ impl KZGBatchWitness {
         &self.w
     }
 
-    pub fn polynomial(&self) -> &Polynomial {
+    pub fn polynomial(&self) -> &Polynomial<N> {
         &self.r
     }
 
-    pub fn new(r: Polynomial, w: G1Affine) -> Self {
+    pub fn new(r: Polynomial<N>, w: G1Affine) -> Self {
         KZGBatchWitness { r, w }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGProver<'params> {
-    parameters: &'params KZGParams,
+pub struct KZGProver<'params, const N: usize> {
+    parameters: &'params KZGParams<N>,
 }
 
 #[derive(Debug, Clone)]
-pub struct KZGVerifier<'params> {
-    parameters: &'params KZGParams,
+pub struct KZGVerifier<'params, const N: usize> {
+    parameters: &'params KZGParams<N>,
 }
 
-impl<'params> KZGProver<'params> {
+impl<'params, const N: usize> KZGProver<'params, N> {
     /// initializes `polynomial` to zero polynomial
-    pub fn new(parameters: &'params KZGParams) -> Self {
+    pub fn new(parameters: &'params KZGParams<N>) -> Self {
         Self {
             parameters,
         }
     }
 
-    pub fn parameters(&self) -> &'params KZGParams {
+    pub fn parameters(&self) -> &'params KZGParams<N> {
         self.parameters
     }
 
-    pub fn commit(&self, polynomial: &Polynomial) -> KZGCommitment {
+    pub fn commit(&self, polynomial: &Polynomial<N>) -> KZGCommitment {
         let gs = &self.parameters.gs[..polynomial.num_coeffs()];
         let commitment = G1Projective::multi_exp(gs, polynomial.slice_coeffs());
 
         commitment.to_affine()
     }
 
-    pub fn create_witness(&self, polynomial: &Polynomial, (x, y): (Scalar, Scalar)) -> Result<KZGWitness, KZGError> {
+    pub fn create_witness(&self, polynomial: &Polynomial<N>, (x, y): (Scalar, Scalar)) -> Result<KZGWitness, KZGError> {
         let mut dividend = polynomial.clone();
         dividend.coeffs[0] -= y;
 
-        let divisor = Polynomial::new_from_coeffs(vec![-x, Scalar::one()], 1);
+        let mut divisor_coeffs = [Scalar::zero(); N];
+        divisor_coeffs[0] = -x;
+        divisor_coeffs[1] = Scalar::one();
+        let divisor = Polynomial::new_from_coeffs(divisor_coeffs, 1);
+
         match dividend.long_division(&divisor) {
             // by polynomial remainder theorem, if (x - point.x) does not divide self.polynomial, then
             // self.polynomial(point.y) != point.1
@@ -82,10 +86,13 @@ impl<'params> KZGProver<'params> {
 
     pub fn create_witness_batched(
         &self,
-        polynomial: &Polynomial,
+        polynomial: &Polynomial<N>,
         xs: &[Scalar],
         ys: &[Scalar],
-    ) -> Result<KZGBatchWitness, KZGError> {
+    ) -> Result<KZGBatchWitness<N>, KZGError> {
+        assert!(xs.len() == ys.len());
+        assert!(xs.len() <= polynomial.num_coeffs());
+
         let tree = SubProductTree::new_from_points(xs);
 
         let interpolation = Polynomial::lagrange_interpolation_with_tree(xs, ys, &tree);
@@ -111,12 +118,12 @@ impl<'params> KZGProver<'params> {
     }
 }
 
-impl<'params> KZGVerifier<'params> {
-    pub fn new(parameters: &'params KZGParams) -> Self {
+impl<'params, const N: usize> KZGVerifier<'params, N> {
+    pub fn new(parameters: &'params KZGParams<N>) -> Self {
         KZGVerifier { parameters }
     }
 
-    pub fn verify_poly(&self, commitment: &KZGCommitment, polynomial: &Polynomial) -> bool {
+    pub fn verify_poly(&self, commitment: &KZGCommitment, polynomial: &Polynomial<N>) -> bool {
         let gs = &self.parameters.gs[..polynomial.num_coeffs()];
         let check = G1Projective::multi_exp(gs, polynomial.slice_coeffs());
 
@@ -145,12 +152,12 @@ impl<'params> KZGVerifier<'params> {
         &self,
         xs: &[Scalar],
         commitment: &KZGCommitment,
-        witness: &KZGBatchWitness,
+        witness: &KZGBatchWitness<N>,
     ) -> bool {
-        let z: Polynomial = op_tree(
+        let z: Polynomial<N> = op_tree(
             xs.len(),
             &|i| {
-                let mut coeffs = vec![-xs[i], Scalar::one()];
+                let mut coeffs = [Scalar::zero(); N];
                 coeffs[0] = -xs[i];
                 coeffs[1] = Scalar::one();
                 Polynomial::new_from_coeffs(coeffs, 1)
@@ -190,14 +197,14 @@ mod tests {
 
     const RNG_SEED: [u8; 32] = [69; 32];
 
-    fn test_setup<const MAX_COEFFS: usize>(rng: &mut SmallRng) -> KZGParams {
+    fn test_setup<const N: usize>(rng: &mut SmallRng) -> KZGParams<N> {
         let s: Scalar = rng.gen::<u64>().into();
-        setup(s, MAX_COEFFS)
+        setup::<N>(s)
     }
 
-    fn test_participants<'params>(
-        params: &'params KZGParams,
-    ) -> (KZGProver<'params>, KZGVerifier<'params>) {
+    fn test_participants<'params, const N: usize>(
+        params: &'params KZGParams<N>,
+    ) -> (KZGProver<'params, N>, KZGVerifier<'params, N>) {
         let prover = KZGProver::new(params);
         let verifier = KZGVerifier::new(params);
 
@@ -205,9 +212,9 @@ mod tests {
     }
 
     // never returns zero polynomial
-    fn random_polynomial(rng: &mut SmallRng, min_coeffs: usize, max_coeffs: usize) -> Polynomial {
-        let num_coeffs = rng.gen_range(min_coeffs..max_coeffs);
-        let mut coeffs = vec![Scalar::zero(); max_coeffs];
+    fn random_polynomial<const N: usize>(rng: &mut SmallRng, min_coeffs: usize) -> Polynomial<N> {
+        let num_coeffs = rng.gen_range(min_coeffs..N);
+        let mut coeffs = [Scalar::zero(); N];
 
         for i in 0..num_coeffs {
             coeffs[i] = rng.gen::<u64>().into();
@@ -218,10 +225,10 @@ mod tests {
         poly
     }
 
-    fn assert_verify_poly(
-        verifier: &KZGVerifier,
+    fn assert_verify_poly<const N: usize>(
+        verifier: &KZGVerifier<N>,
         commitment: &KZGCommitment,
-        polynomial: &Polynomial,
+        polynomial: &Polynomial<N>,
     ) {
         assert!(
             verifier.verify_poly(&commitment, &polynomial),
@@ -231,10 +238,10 @@ mod tests {
         );
     }
 
-    fn assert_verify_poly_fails(
-        verifier: &KZGVerifier,
+    fn assert_verify_poly_fails<const N: usize>(
+        verifier: &KZGVerifier<N>,
         commitment: &KZGCommitment,
-        polynomial: &Polynomial,
+        polynomial: &Polynomial<N>,
     ) {
         assert!(
             !verifier.verify_poly(&commitment, &polynomial),
@@ -244,8 +251,8 @@ mod tests {
         );
     }
 
-    fn assert_verify_eval(
-        verifier: &KZGVerifier,
+    fn assert_verify_eval<const N: usize>(
+        verifier: &KZGVerifier<N>,
         point: (Scalar, Scalar),
         commitment: &KZGCommitment,
         witness: &KZGWitness,
@@ -259,8 +266,8 @@ mod tests {
         );
     }
 
-    fn assert_verify_eval_fails(
-        verifier: &KZGVerifier,
+    fn assert_verify_eval_fails<const N: usize>(
+        verifier: &KZGVerifier<N>,
         point: (Scalar, Scalar),
         commitment: &KZGCommitment,
         witness: &KZGWitness,
@@ -270,16 +277,18 @@ mod tests {
 
     #[test]
     fn test_basic() {
+        const N: usize = 16;
+
         let mut rng = SmallRng::from_seed(RNG_SEED);
-        let params = test_setup::<12>(&mut rng);
+        let params = test_setup::<N>(&mut rng);
 
         let (prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(&mut rng, 2, 12);
+        let polynomial = random_polynomial::<N>(&mut rng, 2);
         let commitment = prover.commit(&polynomial);
 
         assert_verify_poly(&verifier, &commitment, &polynomial);
-        assert_verify_poly_fails(&verifier, &commitment, &random_polynomial(&mut rng, 2, 12));
+        assert_verify_poly_fails(&verifier, &commitment, &random_polynomial(&mut rng, 2));
     }
 
     fn random_field_elem_neq(val: Scalar) -> Scalar {
@@ -294,12 +303,13 @@ mod tests {
 
     #[test]
     fn test_modify_single_coeff() {
+        const N: usize = 8;
         let mut rng = SmallRng::from_seed(RNG_SEED);
-        let params = test_setup::<8>(&mut rng);
+        let params = test_setup::<N>(&mut rng);
 
         let (prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(&mut rng, 3, 8);
+        let polynomial = random_polynomial(&mut rng, 3);
         let commitment = prover.commit(&polynomial);
 
         let mut modified_polynomial = polynomial.clone();
@@ -312,12 +322,13 @@ mod tests {
 
     #[test]
     fn test_eval_basic() {
+        const N: usize = 16;
         let mut rng = SmallRng::from_seed(RNG_SEED);
-        let params = test_setup::<13>(&mut rng);
+        let params = test_setup::<N>(&mut rng);
 
         let (prover, verifier) = test_participants(&params);
 
-        let polynomial = random_polynomial(&mut rng, 5, 13);
+        let polynomial = random_polynomial(&mut rng, 5);
         let commitment = prover.commit(&polynomial);
 
         let x: Scalar = rng.gen::<u64>().into();
@@ -330,7 +341,7 @@ mod tests {
         assert_verify_eval_fails(&verifier, (x, y_prime), &commitment, &witness);
 
         // test degree 1 edge case
-        let mut coeffs = vec![Scalar::zero(); 13];
+        let mut coeffs = [Scalar::zero(); N];
         coeffs[0] = 3.into();
         coeffs[1] = 1.into();
         let polynomial = Polynomial::new(coeffs);
@@ -343,57 +354,59 @@ mod tests {
 
     #[test]
     fn test_eval_batched() {
+        const N: usize = 8;
         let mut rng = SmallRng::from_seed(RNG_SEED);
-        let params = test_setup::<15>(&mut rng);
+        let params = test_setup::<N>(&mut rng);
 
         let (prover, verifier) = test_participants(&params);
-        let polynomial = random_polynomial(&mut rng, 8, 15);
+        let polynomial = random_polynomial(&mut rng, 5);
         let commitment = prover.commit(&polynomial);
 
-        let mut xs: Vec<Scalar> = Vec::with_capacity(8);
-        let mut ys: Vec<Scalar> = Vec::with_capacity(8);
-        for _ in 0..8 {
+        let mut xs = [Scalar::zero(); N];
+        let mut ys  = [Scalar::zero(); N];
+        for i in 0..N {
             let x: Scalar = rng.gen::<u64>().into();
-            xs.push(x);
-            ys.push(polynomial.eval(x));
+            xs[i] = x;
+            ys[i] = polynomial.eval(x);
         }
 
         let witness = prover
-            .create_witness_batched(&polynomial, xs.as_slice(), ys.as_slice())
+            .create_witness_batched(&polynomial, &xs[..5], &ys[..5])
             .unwrap();
-        assert!(verifier.verify_eval_batched(xs.as_slice(), &commitment, &witness));
+        assert!(verifier.verify_eval_batched(&xs, &commitment, &witness));
 
-        let mut xs: Vec<Scalar> = Vec::with_capacity(8);
-        let mut ys: Vec<Scalar> = Vec::with_capacity(8);
-        for _ in 0..8 {
+        let mut xs = [Scalar::zero(); N];
+        let mut ys = [Scalar::zero(); N];
+        for i in 0..N {
             let x: Scalar = rng.gen::<u64>().into();
-            xs.push(x);
-            ys.push(polynomial.eval(x));
+            xs[i] = x;
+            ys[i] = polynomial.eval(x);
         }
 
-        assert!(!verifier.verify_eval_batched(&xs, &commitment, &witness))
+        assert!(!verifier.verify_eval_batched(&xs[..5], &commitment, &witness))
     }
 
     #[test]
     fn test_eval_batched_all_points() {
+        const N: usize = 16;
         let mut rng = SmallRng::from_seed(RNG_SEED);
-        let params = test_setup::<15>(&mut rng);
+        let params = test_setup::<N>(&mut rng);
 
         let (prover, verifier) = test_participants(&params);
-        let polynomial = random_polynomial(&mut rng, 13, 14);
+        let polynomial = random_polynomial(&mut rng, 13);
         let commitment = prover.commit(&polynomial);
 
-        let mut xs: Vec<Scalar> = Vec::with_capacity(polynomial.num_coeffs());
-        let mut ys: Vec<Scalar> = Vec::with_capacity(polynomial.num_coeffs());
-        for _ in 0..polynomial.num_coeffs() {
+        let mut xs = [Scalar::zero(); N];
+        let mut ys = [Scalar::zero(); N];
+        for i in 0..polynomial.num_coeffs() {
             let x: Scalar = rng.gen::<u64>().into();
-            xs.push(x);
-            ys.push(polynomial.eval(x));
+            xs[i] = x;
+            ys[i] = polynomial.eval(x);
         }
 
         let witness = prover
-            .create_witness_batched(&polynomial, xs.as_slice(), ys.as_slice())
+            .create_witness_batched(&polynomial, &xs[..], &ys[..])
             .unwrap();
-        assert!(verifier.verify_eval_batched(xs.as_slice(), &commitment, &witness));
+        assert!(verifier.verify_eval_batched(&xs[..], &commitment, &witness));
     }
 }

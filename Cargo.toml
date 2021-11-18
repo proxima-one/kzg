@@ -25,6 +25,7 @@ thiserror = "1.0.26"
 rand = { version = "0.8.4", optional = true }
 serde = { version = "1", optional = true, features = ["derive"] }
 blstrs = { git = "https://github.com/Sladuca/blstrs.git", rev = "b98fc83" }
+arrayref = "0.3.6"
 rayon = { version = "1.5.1", optional = true}
 
 [dev-dependencies]

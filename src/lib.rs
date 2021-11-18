@@ -11,11 +11,11 @@ pub mod utils;
 /// parameters from tested setup
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
-pub struct KZGParams {
+pub struct KZGParams<const N: usize> {
     /// g, g^alpha^1, g^alpha^2, ...
-    gs: Vec<G1Projective>,
+    gs: [G1Projective; N],
     /// h, h^alpha^1, h^alpha^2, ...
-    hs: Vec<G2Projective>,
+    hs: [G2Projective; N]
 }
 
 /// the commitment - "C" in the paper. It's a single group element
@@ -35,9 +35,10 @@ pub enum KZGError {
     PolynomialDegreeTooLarge,
 }
 
-pub fn setup(s: Scalar, num_coeffs: usize) -> KZGParams {
-    let mut gs = vec![G1Projective::generator(); num_coeffs];
-    let mut hs = vec![G2Projective::generator(); num_coeffs];
+pub fn setup<const N: usize>(s: Scalar) -> KZGParams<N> {
+    assert!(N & (N - 1) == 0);
+    let mut gs = [G1Projective::generator(); N];
+    let mut hs = [G2Projective::generator(); N];
 
     let mut curr = gs[0];
     for g in gs.iter_mut().skip(1) {
@@ -58,7 +59,7 @@ pub fn setup(s: Scalar, num_coeffs: usize) -> KZGParams {
 use rand::random;
 
 #[cfg(any(csprng_setup, test))]
-pub fn csprng_setup(num_coeffs: usize) -> KZGParams {
+pub fn csprng_setup<const N: usize>() -> KZGParams<N> {
     let s: Scalar = random::<u64>().into();
-    setup(s, num_coeffs)
+    setup::<N>(s)
 }
