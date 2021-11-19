@@ -40,7 +40,6 @@ impl KZGBatchWitnessEvalForm {
 pub struct KZGProverEvalForm<'params> {
     parameters: &'params KZGParams,
     lagrange_basis_g: &'params [G1Projective],
-    lagrange_basis_h: &'params [G2Projective],
     d: usize,
     exp: u32,
     omega: Scalar,
@@ -89,13 +88,11 @@ impl<'params> KZGProverEvalForm<'params> {
     pub fn new(
         parameters: &'params KZGParams,
         lagrange_basis_g: &'params [G1Projective],
-        lagrange_basis_h: &'params [G2Projective],
     ) -> Self {
         let (d, exp, omega) = EvaluationDomain::compute_omega(parameters.gs.len()).unwrap();
         Self {
             parameters,
             lagrange_basis_g,
-            lagrange_basis_h,
             d,
             exp,
             omega,
@@ -253,13 +250,13 @@ pub fn compute_lagrange_basis(params: &KZGParams) -> (Vec<G1Projective>, Vec<G2P
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::setup;
+    use crate::{setup, utils::is_power_of_two};
     use rand::{rngs::SmallRng, Rng, SeedableRng};
 
     const RNG_SEED: [u8; 32] = [69; 32];
 
     fn test_setup(rng: &mut SmallRng, d: usize) -> KZGParams {
-        assert!(d & (d - 1) == 0);
+        assert!(is_power_of_two(d as u64));
 
         let s: Scalar = rng.gen::<u64>().into();
         setup(s, d)
@@ -270,7 +267,7 @@ mod tests {
         lagrange_basis_g: &'params [G1Projective],
         lagrange_basis_h: &'params [G2Projective],
     ) -> (KZGProverEvalForm<'params>, KZGVerifierEvalForm<'params>) {
-        let prover = KZGProverEvalForm::new(params, lagrange_basis_g, lagrange_basis_h);
+        let prover = KZGProverEvalForm::new(params, lagrange_basis_g);
         let verifier = KZGVerifierEvalForm::new(params, lagrange_basis_g, lagrange_basis_h);
 
         (prover, verifier)

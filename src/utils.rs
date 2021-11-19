@@ -47,3 +47,7 @@ pub fn chunk_by_num_threads(size: usize) -> usize {
         size / num_threads
     }
 }
+
+pub fn is_power_of_two(n: u64) -> bool {
+    n & (n - 1) == 0
+}
