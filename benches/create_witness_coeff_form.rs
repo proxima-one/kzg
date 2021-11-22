@@ -39,11 +39,11 @@ fn bench_create_witness<const NUM_COEFFS: usize>(c: &mut Criterion) {
     }
 }
 
+mod perf;
+
 criterion_group!(
-    create_witness,
-    bench_create_witness<16>,
-    bench_create_witness<64>,
-    bench_create_witness<128>,
-    bench_create_witness<256>
+    name = create_witness;
+    config = Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100));
+    targets = bench_create_witness<16>, bench_create_witness<64>, bench_create_witness<128>, bench_create_witness<256>
 );
 criterion_main!(create_witness);

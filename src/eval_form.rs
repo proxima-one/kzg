@@ -221,6 +221,38 @@ impl<'params> KZGVerifierEvalForm<'params> {
     }
 }
 
+pub fn compute_lagrange_basis_and_polynomials(params: &KZGParams) -> (Vec<G1Projective>, Vec<G2Projective>, Vec<Polynomial>) {
+    let d = params.gs.len();
+    assert!(d & (d - 1) == 0);
+
+    let (d, _, omega) = EvaluationDomain::compute_omega(params.gs.len()).unwrap();
+    let mut gs = Vec::with_capacity(d);
+    let mut hs = Vec::with_capacity(d);
+    let mut ls = Vec::with_capacity(d);
+
+    for i in 0..d {
+        let xi = omega.pow_vartime(&[i as u64]);
+        let mut l = Polynomial::new_monic_of_degree(0);
+        for j in (0..d).filter(|&j| j != i) {
+            let xj = omega.pow_vartime(&[j as u64]);
+            l = l.best_mul(&Polynomial::new(vec![-xj, Scalar::one()]));
+            l = l.scalar_multiplication((xi - xj).invert().unwrap());
+        }
+
+
+        let coeffs = l.coeffs.clone();
+        let g = &params.gs[..coeffs.len()];
+        gs.push(G1Projective::multi_exp(g, coeffs.as_slice()));
+
+        let h = &params.hs[..coeffs.len()];
+        hs.push(G2Projective::multi_exp(h, coeffs.as_slice()));
+
+        ls.push(l);
+    }
+
+    (gs, hs, ls)
+}
+
 /// params.gs.len() must be a power of two.
 pub fn compute_lagrange_basis(params: &KZGParams) -> (Vec<G1Projective>, Vec<G2Projective>) {
     let d = params.gs.len();

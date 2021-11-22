@@ -36,11 +36,11 @@ fn bench_poly_verify<const NUM_COEFFS: usize>(c: &mut Criterion) {
     );
 }
 
+mod perf;
+
 criterion_group!(
-    poly_verify,
-    bench_poly_verify<16>,
-    bench_poly_verify<64>,
-    bench_poly_verify<128>,
-    bench_poly_verify<256>
+    name = poly_verify;
+    config = Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100));
+    targets = bench_poly_verify<16>, bench_poly_verify<64>, bench_poly_verify<128>, bench_poly_verify<256>
 );
 criterion_main!(poly_verify);

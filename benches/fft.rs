@@ -26,12 +26,11 @@ fn bench_fft<const N: usize>(c: &mut Criterion) {
     });
 }
 
+
+mod perf;
 criterion_group!(
-    fft,
-    bench_fft<16>,
-    bench_fft<64>,
-    bench_fft<128>,
-    bench_fft<256>,
-    bench_fft<512>
+    name = fft;
+    config = Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100));
+    targets = bench_fft<16>, bench_fft<64>, bench_fft<128>, bench_fft<256>, bench_fft<512>
 );
 criterion_main!(fft);

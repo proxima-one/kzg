@@ -31,11 +31,11 @@ fn bench_commit<const NUM_COEFFS: usize>(c: &mut Criterion) {
     );
 }
 
+mod perf;
+
 criterion_group!(
-    commit,
-    bench_commit<16>,
-    bench_commit<64>,
-    bench_commit<128>,
-    bench_commit<256>
+    name = commit;
+    config = Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100));
+    targets = bench_commit<16>, bench_commit<64>, bench_commit<128>, bench_commit<256>
 );
 criterion_main!(commit);
