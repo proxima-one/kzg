@@ -13,9 +13,9 @@ pub mod utils;
 #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
 pub struct KZGParams {
     /// g, g^alpha^1, g^alpha^2, ...
-    gs: Vec<G1Projective>,
+    pub gs: Vec<G1Projective>,
     /// h, h^alpha^1, h^alpha^2, ...
-    hs: Vec<G2Projective>,
+    pub hs: Vec<G2Projective>,
 }
 
 /// the commitment - "C" in the paper. It's a single group element

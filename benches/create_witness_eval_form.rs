@@ -27,7 +27,7 @@ fn bench_create_witness<const NUM_COEFFS: usize>(c: &mut Criterion) {
     let lagrange_basis = compute_lagrange_basis(&params);
 
     let evals = random_evals(&mut rng, NUM_COEFFS);
-    let prover = KZGProverEvalForm::new(&params, lagrange_basis.0.as_slice(), lagrange_basis.1.as_slice());
+    let prover = KZGProverEvalForm::new(&params, lagrange_basis.0.as_slice());
     let _commitment = prover.commit(&evals);
 
     c.bench_function(
